@@ -17,7 +17,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.0.0
+ * @version    2.3.2
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -136,6 +136,9 @@ function nextcloudsaas_getSSHManager($params)
 /**
  * Criar instância do NextcloudAPI a partir dos parâmetros WHMCS
  *
+ * Tenta obter a password real do admin a partir do ficheiro .credentials
+ * via SSH. Se não conseguir, usa o $params['password'] como fallback.
+ *
  * @param array  $params Parâmetros do módulo
  * @param string $domain Domínio da instância Nextcloud (opcional)
  * @return NextcloudAPI
@@ -148,9 +151,23 @@ function nextcloudsaas_getNextcloudAPI($params, $domain = '')
 
     $baseUrl = 'https://' . $domain;
 
-    // Tentar obter credenciais admin da instância
+    // Utilizador admin é sempre 'admin'
     $adminUser = 'admin';
     $adminPass = isset($params['password']) ? $params['password'] : '';
+
+    // Tentar obter a password real do .credentials via SSH
+    try {
+        $clientName = nextcloudsaas_getClientName($params);
+        if (!empty($clientName)) {
+            $ssh = nextcloudsaas_getSSHManager($params);
+            $credsResult = $ssh->getCredentials($clientName);
+            if ($credsResult['success'] && !empty($credsResult['credentials']['nextcloud_pass'])) {
+                $adminPass = $credsResult['credentials']['nextcloud_pass'];
+            }
+        }
+    } catch (\Exception $e) {
+        // Silenciar — usar fallback $params['password']
+    }
 
     return new NextcloudAPI($baseUrl, $adminUser, $adminPass);
 }
@@ -876,23 +893,31 @@ function nextcloudsaas_testSSH(array $params)
 /**
  * Testar a conexão com a API do Nextcloud.
  *
+ * Obtém a password real do admin a partir do .credentials via SSH
+ * e testa a comunicação com a API OCS da instância Nextcloud.
+ *
  * @param array $params Parâmetros comuns do módulo
  * @return string "success" ou mensagem de erro
  */
 function nextcloudsaas_testAPI(array $params)
 {
     try {
+        $domain = isset($params['domain']) ? $params['domain'] : '';
+        if (empty($domain)) {
+            return 'Domínio não configurado para este serviço.';
+        }
+
         $ncApi = nextcloudsaas_getNextcloudAPI($params);
         $result = $ncApi->testConnection();
 
-        Helper::log('testAPI', [], $result);
+        Helper::log('testAPI', ['domain' => $domain], $result);
 
         if (!$result['success']) {
-            return $result['message'];
+            return 'Erro API Nextcloud (' . $domain . '): ' . $result['message'];
         }
 
     } catch (\Exception $e) {
-        return $e->getMessage();
+        return 'Exceção ao testar API: ' . $e->getMessage();
     }
 
     return 'success';

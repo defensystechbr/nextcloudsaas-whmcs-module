@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.3.1
+# Módulo Nextcloud-SaaS para WHMCS v2.3.2
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.3.1  
+**Versão:** 2.3.2  
 **Licença:** Proprietária
 
 ---
@@ -195,6 +195,9 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v2.3.2 (2026-02-13):**
+    -   **Correção:** Botão "Testar API Nextcloud" agora obtém a password real do admin a partir do ficheiro `.credentials` via SSH, corrigindo o erro "Unauthorised".
+    -   **Melhoria:** Mensagens de erro mais descritivas no teste de API.
 -   **v2.3.1 (2026-02-12):**
     -   **Correção:** Armazenamento na área de cliente agora usa SSH (`du -sh`) em vez da API OCS, alinhando com o painel admin.
 -   **v2.3.0 (2026-02-12):**
