@@ -1,14 +1,14 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.1.0
+# Módulo Nextcloud-SaaS para WHMCS v2.3.1
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.1.0  
+**Versão:** 2.3.1  
 **Licença:** Proprietária
 
 ---
 
 ## 1. Visão Geral
 
-O Módulo Nextcloud-SaaS para WHMCS v2.1.0 é uma solução completa para provisionar e gerir instâncias Nextcloud como um produto de Software as a Service (SaaS). Esta versão foi completamente reescrita para se integrar diretamente com o script `manage.sh` v10.0, que gere uma arquitetura robusta de 10 containers por instância, orquestrada por um proxy reverso Traefik com provisionamento automático de SSL via Let's Encrypt.
+O Módulo Nextcloud-SaaS para WHMCS é uma solução completa para provisionar e gerir instâncias Nextcloud como um produto de Software as a Service (SaaS). Esta versão foi completamente reescrita para se integrar diretamente com o script `manage.sh` v10.0, que gere uma arquitetura robusta de 10 containers por instância, orquestrada por um proxy reverso Traefik com provisionamento automático de SSL via Let's Encrypt.
 
 Esta integração elimina a necessidade de scripts auxiliares no módulo, centralizando toda a lógica de gestão de instâncias no `manage.sh` do servidor, resultando em maior estabilidade, segurança e facilidade de manutenção.
 
@@ -48,7 +48,11 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 -   Um servidor Ubuntu Linux com o Nextcloud-SaaS (baseado no `manage.sh` v10.0) já instalado em `/opt/nextcloud-customers`.
 -   Docker e Docker Compose instalados e a funcionar.
 -   Traefik a correr como proxy reverso.
--   Acesso SSH ao servidor a partir do servidor WHMCS (por chave ou por password).
+-   Acesso SSH ao servidor a partir do servidor WHMCS.
+-   **Utilizador SSH com sudo NOPASSWD:** O utilizador SSH (ex: `defensys`) precisa de permissões de `sudo` sem password. Para configurar, adicione a seguinte linha ao ficheiro `/etc/sudoers` no servidor de hospedagem:
+    ```
+    defensys ALL=(ALL) NOPASSWD: ALL
+    ```
 
 ### 2.2. Instalação do Módulo
 
@@ -182,14 +186,30 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 -   **Estado da Instância:** Mostra se a instância está ativa, parada ou parcial, e o número de containers a correr.
 -   **Links de Acesso Rápido:** Botões para aceder diretamente ao Nextcloud, Collabora e Talk.
--   **Informações de Armazenamento:** Barra de progresso e detalhes sobre o uso de disco.
--   **Credenciais:** Informações de acesso.
+-   **Informações de Armazenamento:** Barra de progresso e detalhes sobre o uso de disco (obtido via `du -sh` no servidor).
+-   **Credenciais:** Informações de acesso completas, lidas diretamente do ficheiro `.credentials` da instância.
 -   **Componentes da Instância:** Lista dos 10 containers que compõem a sua instância.
 -   **Aviso de DNS:** Lembrete constante dos 3 domínios DNS necessários.
 
 ---
 
-## 4. Ficheiros do Módulo
+## 4. Changelog
+
+-   **v2.3.1 (2026-02-12):**
+    -   **Correção:** Armazenamento na área de cliente agora usa SSH (`du -sh`) em vez da API OCS, alinhando com o painel admin.
+-   **v2.3.0 (2026-02-12):**
+    -   **Correção:** Utilizador padrão na área de cliente agora é "admin".
+    -   **Melhoria:** `parseCredentials()` reescrito para usar `strpos` em vez de regex, corrigindo problemas com UTF-8.
+-   **v2.2.0 (2026-02-12):**
+    -   **Correção:** Comandos SSH agora usam `sudo -n` (NOPASSWD) em vez de `echo password | sudo -S`.
+-   **v2.1.0 (2026-02-12):**
+    -   **Melhoria:** Adicionado `phpseclib3` para comunicação SSH em PHP puro, eliminando dependências externas.
+-   **v2.0.0 (2026-02-11):**
+    -   Versão inicial reescrita para integrar com `manage.sh` v10.0.
+
+---
+
+## 5. Ficheiros do Módulo
 
 -   `nextcloudsaas.php`: Ficheiro principal com toda a lógica do ciclo de vida, botões e integração com o WHMCS.
 -   `lib/SSHManager.php`: Classe robusta para gerir a comunicação SSH, com métodos que são wrappers diretos dos comandos do `manage.sh`.
@@ -198,3 +218,4 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 -   `templates/clientarea.tpl`: Template Smarty para a área de cliente, com um design moderno e informativo.
 -   `hooks.php`: Adiciona logs de atividade detalhados para cada ação do ciclo de vida.
 -   `whmcs.json`: Metadados do módulo.
+-   `vendor/`: Contém a biblioteca `phpseclib3`.
