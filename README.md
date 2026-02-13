@@ -1,4 +1,4 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.4.3
+# Módulo Nextcloud-SaaS para WHMCS v2.4.4
 
 **Autor:** Defensys / Manus AI  
 **Versão:** 2.4.1  
@@ -195,7 +195,7 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
--   **v2.4.3 (2026-02-13):**
+-   **v2.4.4 (2026-02-13):**
     -   **Novo:** Hook de personalização da tela de domínio no carrinho — remove o prefixo "www." e o campo de TLD, substituindo por um campo único de domínio completo.
     -   **Novo:** Instruções de DNS exibidas automaticamente na tela de pedido (3 registros A necessários).
     -   **Novo:** Validação automática que remove "www." se o cliente o incluir no domínio.

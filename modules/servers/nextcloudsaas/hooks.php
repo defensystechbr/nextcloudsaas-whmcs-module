@@ -9,7 +9,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.4.3
+ * @version    2.4.4
  */
 
 if (!defined("WHMCS")) {
@@ -172,7 +172,7 @@ add_hook('AfterModuleChangePackage', 1, function ($vars) {
  *   - Mensagem DNS aparece apenas uma vez (ID único para evitar duplicação)
  *   - Mensagem DNS inclui tipo de registro (A) e IP do servidor em tabela
  *
- * v2.4.3:
+ * v2.4.4:
  *   - IP do servidor obtido dinamicamente da tabela tblservers (módulo nextcloudsaas)
  *
  * Só afeta produtos com "nextcloud" na URL do carrinho.
@@ -234,51 +234,47 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var serverIp = '{$serverIp}';
 
-    // Procurar o campo de domínio com prefixo "www."
-    var allAddons = document.querySelectorAll('.input-group-addon, .input-group-text');
-    var wwwAddon = null;
-    var domainGroup = null;
+    // Encontrar os campos de domínio pelo ID
+    var sldInput = document.getElementById('owndomainsld');
+    var tldInput = document.getElementById('owndomaintld');
 
-    for (var i = 0; i < allAddons.length; i++) {
-        if (allAddons[i].textContent.trim() === 'www.') {
-            wwwAddon = allAddons[i];
-            domainGroup = allAddons[i].closest('.input-group');
-            break;
-        }
-    }
-
-    if (!domainGroup) {
+    if (!sldInput) {
         return;
     }
 
-    // Encontrar o campo de input do domínio (SLD)
-    var sldInput = document.getElementById('owndomainsld') || domainGroup.querySelector('input[type="text"]');
-
-    // 1. Esconder TUDO dentro do input-group, exceto o campo de input principal
-    var children = domainGroup.querySelectorAll('*');
-    for (var j = 0; j < children.length; j++) {
-        var child = children[j];
-        if (child === sldInput) continue;
-        if (child.contains && child.contains(sldInput)) continue;
-        
-        // Esconder addons, selects, e wrappers de TLD
-        if (child.classList.contains('input-group-addon') ||
-            child.classList.contains('input-group-text') ||
-            child.classList.contains('input-group-prepend') ||
-            child.classList.contains('input-group-append') ||
-            child.tagName === 'SELECT') {
-            child.style.display = 'none';
+    // 1. Esconder o prefixo "www." — procurar addon dentro do input-group do SLD
+    var sldGroup = sldInput.closest('.input-group');
+    if (sldGroup) {
+        var addons = sldGroup.querySelectorAll('.input-group-addon, .input-group-text, .input-group-prepend');
+        for (var i = 0; i < addons.length; i++) {
+            if (addons[i].textContent.trim() === 'www.' || addons[i].querySelector && addons[i].querySelector('.input-group-text')) {
+                addons[i].style.display = 'none';
+            }
         }
     }
 
-    // 2. Ajustar o campo de input
-    if (sldInput) {
-        sldInput.setAttribute('placeholder', 'ex: nextcloud.suaempresa.com.br');
-        sldInput.style.borderRadius = '4px';
-        sldInput.style.width = '100%';
+    // 2. Esconder o campo TLD completamente (input + div pai)
+    if (tldInput) {
+        var tldContainer = tldInput.closest('.col-xs-3, .col-3, .col-sm-3, .col-md-3');
+        if (tldContainer) {
+            tldContainer.style.display = 'none';
+        } else {
+            tldInput.parentElement.style.display = 'none';
+        }
     }
 
-    // 3. Alterar o título da secção
+    // 3. Expandir o campo SLD para ocupar o espaço do TLD
+    var sldContainer = sldInput.closest('.col-xs-5, .col-5, .col-sm-5, .col-md-5, .col-xs-6, .col-6');
+    if (sldContainer) {
+        sldContainer.className = sldContainer.className
+            .replace(/col-(xs-|sm-|md-|lg-|xl-)?[0-9]+/g, '')
+            .trim();
+        sldContainer.classList.add('col-8');
+    }
+    sldInput.setAttribute('placeholder', 'ex: nextcloud.suaempresa.com.br');
+    sldInput.style.borderRadius = '4px';
+
+    // 4. Alterar o título da secção
     var headings = document.querySelectorAll('h2, h3, .header-lined, .sub-heading');
     for (var k = 0; k < headings.length; k++) {
         var txt = headings[k].textContent.toLowerCase();
@@ -288,9 +284,52 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // 4. Adicionar instruções sobre DNS (apenas uma vez, com ID único)
-    var parentContainer = domainGroup.parentElement;
-    if (parentContainer) {
+    // 5. Interceptar o submit para separar SLD e TLD automaticamente
+    var form = document.getElementById('frmProductDomain');
+    var submitBtn = document.getElementById('useOwnDomain');
+    if (submitBtn && tldInput) {
+        submitBtn.addEventListener('click', function(e) {
+            var fullDomain = sldInput.value.trim().toLowerCase();
+
+            // Remover www. se presente
+            if (fullDomain.indexOf('www.') === 0) {
+                fullDomain = fullDomain.substring(4);
+            }
+
+            // Remover protocolo se presente
+            fullDomain = fullDomain.replace(/^https?:\/\//, '');
+
+            // Remover barra final
+            fullDomain = fullDomain.replace(/\/+$/, '');
+
+            // Separar em SLD e TLD
+            // Ex: nextcloud.empresa.com.br -> SLD=nextcloud.empresa, TLD=com.br
+            // Ex: cloud.empresa.com -> SLD=cloud.empresa, TLD=com
+            var parts = fullDomain.split('.');
+            if (parts.length >= 3) {
+                // Verificar TLDs compostos (.com.br, .org.br, .net.br, etc.)
+                var lastTwo = parts[parts.length - 2] + '.' + parts[parts.length - 1];
+                var compositeTlds = ['com.br','org.br','net.br','gov.br','edu.br','mil.br','art.br','blog.br','dev.br','app.br','co.uk','org.uk','co.za'];
+                if (compositeTlds.indexOf(lastTwo) !== -1 && parts.length >= 3) {
+                    sldInput.value = parts.slice(0, parts.length - 2).join('.');
+                    tldInput.value = lastTwo;
+                } else {
+                    sldInput.value = parts.slice(0, parts.length - 1).join('.');
+                    tldInput.value = parts[parts.length - 1];
+                }
+            } else if (parts.length === 2) {
+                sldInput.value = parts[0];
+                tldInput.value = parts[1];
+            } else {
+                sldInput.value = fullDomain;
+                tldInput.value = 'com';
+            }
+        });
+    }
+
+    // 6. Adicionar instruções sobre DNS (apenas uma vez, com ID único)
+    var formContainer = sldInput.closest('.domain-selection-options') || sldInput.closest('form') || sldInput.parentElement.parentElement;
+    if (formContainer) {
         var dnsInfo = document.createElement('div');
         dnsInfo.id = 'nextcloud-dns-info';
         dnsInfo.style.cssText = 'margin-top: 15px; padding: 12px 16px; background: #f0f7ff; border-left: 4px solid #0082c9; border-radius: 4px; font-size: 0.9em; line-height: 1.8;';
@@ -317,7 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
             '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
             '</tr>' +
             '</table>';
-        parentContainer.appendChild(dnsInfo);
+        formContainer.appendChild(dnsInfo);
     }
 });
 </script>
