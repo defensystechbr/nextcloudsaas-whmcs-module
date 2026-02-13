@@ -17,7 +17,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.3.2
+ * @version    2.3.3
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -766,19 +766,32 @@ function nextcloudsaas_checkStatus(array $params)
 {
     try {
         $clientName = nextcloudsaas_getClientName($params);
+
+        if (empty($clientName)) {
+            return 'Nome do cliente não encontrado para este serviço.';
+        }
+
         $ssh = nextcloudsaas_getSSHManager($params);
         $result = $ssh->statusInstance($clientName);
 
         Helper::log('checkStatus', ['clientName' => $clientName], $result);
 
-        if ($result['success']) {
-            return 'success';
+        if (!$result['success']) {
+            return 'Erro ao verificar estado: ' . $result['error'];
         }
 
-        return "Estado da instância:\n" . $result['output'];
+        $output = trim($result['output']);
+        $runningCount = substr_count(strtolower($output), 'running');
+        $totalContainers = 10;
+
+        $header = "=== ESTADO DA INSTÂNCIA: {$clientName} ===";
+        $header .= "\nContainers ativos: {$runningCount}/{$totalContainers}\n\n";
+
+        // Retornar estado detalhado — o WHMCS exibe como mensagem ao admin
+        return $header . $output;
 
     } catch (\Exception $e) {
-        return $e->getMessage();
+        return 'Exceção ao verificar estado: ' . $e->getMessage();
     }
 }
 
@@ -926,55 +939,128 @@ function nextcloudsaas_testAPI(array $params)
 /**
  * Ver credenciais da instância.
  *
+ * Obtém as credenciais do ficheiro .credentials via SSH e exibe-as
+ * ao administrador. No WHMCS, botões personalizados só exibem output
+ * quando retornam uma string diferente de "success", por isso os dados
+ * são retornados como string formatada.
+ *
  * @param array $params Parâmetros comuns do módulo
- * @return string "success" ou mensagem de erro
+ * @return string Credenciais formatadas ou mensagem de erro
  */
 function nextcloudsaas_viewCredentials(array $params)
 {
     try {
         $clientName = nextcloudsaas_getClientName($params);
-        $ssh = nextcloudsaas_getSSHManager($params);
-        $result = $ssh->credentialsInstance($clientName);
+        $domain = isset($params['domain']) ? $params['domain'] : '';
 
-        Helper::log('viewCredentials', ['clientName' => $clientName], $result);
-
-        if (!$result['success']) {
-            return "Erro ao obter credenciais: " . $result['error'];
+        if (empty($clientName)) {
+            return 'Nome do cliente não encontrado para este serviço.';
         }
 
-    } catch (\Exception $e) {
-        return $e->getMessage();
-    }
+        $ssh = nextcloudsaas_getSSHManager($params);
 
-    return 'success';
+        // Obter credenciais do .credentials via SSH
+        $credsResult = $ssh->getCredentials($clientName);
+
+        Helper::log('viewCredentials', ['clientName' => $clientName], $credsResult);
+
+        if (!$credsResult['success']) {
+            return 'Erro ao obter credenciais: ' . (isset($credsResult['raw']) ? $credsResult['raw'] : 'Ficheiro .credentials não encontrado');
+        }
+
+        $creds = $credsResult['credentials'];
+        $serverConfig = Helper::getServerConfig($params);
+        $serverIp = !empty($serverConfig['ip']) ? $serverConfig['ip'] : $serverConfig['hostname'];
+        $collaboraDomain = Helper::getCollaboraDomain($domain);
+        $signalingDomain = Helper::getSignalingDomain($domain);
+
+        // Formatar credenciais para exibição
+        $output = "=== CREDENCIAIS DA INSTÂNCIA: {$clientName} ===\n\n";
+
+        $output .= "--- Nextcloud ---\n";
+        $output .= "URL: https://{$domain}\n";
+        $output .= "Utilizador: " . (!empty($creds['nextcloud_user']) ? $creds['nextcloud_user'] : 'admin') . "\n";
+        $output .= "Password: " . (!empty($creds['nextcloud_pass']) ? $creds['nextcloud_pass'] : '(não disponível)') . "\n\n";
+
+        $output .= "--- Collabora Online ---\n";
+        $output .= "URL: https://{$collaboraDomain}\n";
+        $output .= "Admin: admin\n";
+        $output .= "Password: " . (!empty($creds['collabora_pass']) ? $creds['collabora_pass'] : '(não disponível)') . "\n\n";
+
+        $output .= "--- Base de Dados (MariaDB) ---\n";
+        $output .= "Host: " . (!empty($creds['db_host']) ? $creds['db_host'] : $clientName . '-db') . "\n";
+        $output .= "Database: " . (!empty($creds['db_name']) ? $creds['db_name'] : 'nextcloud') . "\n";
+        $output .= "Utilizador: " . (!empty($creds['db_user']) ? $creds['db_user'] : 'nextcloud') . "\n";
+        $output .= "Password: " . (!empty($creds['db_password']) ? $creds['db_password'] : '(não disponível)') . "\n";
+        $output .= "Root Password: " . (!empty($creds['db_root_password']) ? $creds['db_root_password'] : '(não disponível)') . "\n\n";
+
+        $output .= "--- TURN Server ---\n";
+        $output .= "Secret: " . (!empty($creds['turn_secret']) ? $creds['turn_secret'] : '(não disponível)') . "\n";
+        $output .= "Porta: " . (!empty($creds['turn_port']) ? $creds['turn_port'] : '(não disponível)') . "\n";
+        $output .= "Endereço: turn:{$serverIp}:" . (!empty($creds['turn_port']) ? $creds['turn_port'] : '?') . "\n\n";
+
+        $output .= "--- Signaling Server ---\n";
+        $output .= "URL: https://{$signalingDomain}\n";
+        $output .= "Secret: " . (!empty($creds['signaling_secret']) ? $creds['signaling_secret'] : '(não disponível)') . "\n\n";
+
+        $output .= "--- HaRP (AppAPI) ---\n";
+        $output .= "Shared Key: " . (!empty($creds['harp_shared_key']) ? $creds['harp_shared_key'] : '(não disponível)') . "\n\n";
+
+        $output .= "--- DNS Necessários ---\n";
+        $output .= "{$domain} → {$serverIp}\n";
+        $output .= "{$collaboraDomain} → {$serverIp}\n";
+        $output .= "{$signalingDomain} → {$serverIp}\n";
+
+        // Retornar como string — o WHMCS exibe como mensagem ao admin
+        return $output;
+
+    } catch (\Exception $e) {
+        return 'Exceção ao obter credenciais: ' . $e->getMessage();
+    }
 }
 
 /**
  * Ver logs do container Docker principal (app).
  *
+ * Obtém as últimas 50 linhas de logs do container principal
+ * da instância Nextcloud via docker logs e exibe-as ao administrador.
+ *
  * @param array $params Parâmetros comuns do módulo
- * @return string "success" ou mensagem de erro
+ * @return string Logs formatados ou mensagem de erro
  */
 function nextcloudsaas_viewLogs(array $params)
 {
     try {
         $clientName = nextcloudsaas_getClientName($params);
+
+        if (empty($clientName)) {
+            return 'Nome do cliente não encontrado para este serviço.';
+        }
+
         $ssh = nextcloudsaas_getSSHManager($params);
+        $containerName = $clientName . '-app';
         $result = $ssh->executeCommand(
-            "docker logs --tail 100 " . escapeshellarg($clientName . '-app') . " 2>&1"
+            "docker logs --tail 50 " . escapeshellarg($containerName) . " 2>&1"
         );
 
         Helper::log('viewLogs', ['clientName' => $clientName], $result);
 
         if (!$result['success']) {
-            return "Erro ao obter logs: " . $result['error'];
+            return 'Erro ao obter logs: ' . $result['error'];
         }
 
-    } catch (\Exception $e) {
-        return $e->getMessage();
-    }
+        $logs = trim($result['output']);
 
-    return 'success';
+        if (empty($logs)) {
+            return "=== LOGS: {$containerName} ===\n\n(Sem logs disponíveis)";
+        }
+
+        // Retornar logs formatados — o WHMCS exibe como mensagem ao admin
+        return "=== LOGS: {$containerName} (últimas 50 linhas) ===\n\n" . $logs;
+
+    } catch (\Exception $e) {
+        return 'Exceção ao obter logs: ' . $e->getMessage();
+    }
 }
 
 // =============================================================================
