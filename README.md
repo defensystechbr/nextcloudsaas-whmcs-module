@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.3.3
+# Módulo Nextcloud-SaaS para WHMCS v2.4.0
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.3.3  
+**Versão:** 2.4.0  
 **Licença:** Proprietária
 
 ---
@@ -195,10 +195,14 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v2.4.0 (2026-02-13):**
+    -   **Melhoria:** Botões "Ver Credenciais", "Ver Logs" e "Verificar Estado" agora exibem dados em painéis HTML formatados na aba de serviços do admin, em vez de mensagens de erro.
+    -   **Correção:** Botão "Ver Credenciais" corrigido — usava método inexistente `credentialsInstance()`, agora usa `getCredentials()`.
+    -   **Novo:** Painel de credenciais com layout em grid, organizado por serviço (Nextcloud, Collabora, MariaDB, TURN, Signaling, HaRP, DNS).
+    -   **Novo:** Painel de logs com terminal escuro e scroll automático.
+    -   **Novo:** Painel de estado com badge colorido (Ativo/Parcial/Parado) e lista detalhada de containers.
 -   **v2.3.3 (2026-02-13):**
-    -   **Correção:** Botão "Ver Credenciais" corrigido — usava método inexistente `credentialsInstance()`, agora usa `getCredentials()` e exibe as credenciais completas ao administrador.
-    -   **Correção:** Botão "Ver Logs" agora exibe as últimas 50 linhas de logs do container `app` ao administrador (antes retornava "success" sem mostrar dados).
-    -   **Melhoria:** Botão "Verificar Estado" agora exibe o estado detalhado dos containers ao administrador.
+    -   Versão intermediária (substituída por v2.4.0).
 -   **v2.3.2 (2026-02-13):**
     -   **Correção:** Botão "Testar API Nextcloud" agora obtém a password real do admin a partir do ficheiro `.credentials` via SSH, corrigindo o erro "Unauthorised".
     -   **Melhoria:** Mensagens de erro mais descritivas no teste de API.

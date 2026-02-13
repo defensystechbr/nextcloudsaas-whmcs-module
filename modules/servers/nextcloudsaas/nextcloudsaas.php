@@ -17,7 +17,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.3.3
+ * @version    2.4.0
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -780,19 +780,23 @@ function nextcloudsaas_checkStatus(array $params)
             return 'Erro ao verificar estado: ' . $result['error'];
         }
 
-        $output = trim($result['output']);
-        $runningCount = substr_count(strtolower($output), 'running');
-        $totalContainers = 10;
-
-        $header = "=== ESTADO DA INSTÂNCIA: {$clientName} ===";
-        $header .= "\nContainers ativos: {$runningCount}/{$totalContainers}\n\n";
-
-        // Retornar estado detalhado — o WHMCS exibe como mensagem ao admin
-        return $header . $output;
+        // Gravar na sessão para exibir no AdminServicesTabFields
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        $_SESSION['nextcloudsaas_panel'] = [
+            'type'      => 'status',
+            'title'     => 'Estado da Instância: ' . $clientName,
+            'content'   => $result['output'],
+            'serviceid' => $params['serviceid'],
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
 
     } catch (\Exception $e) {
         return 'Exceção ao verificar estado: ' . $e->getMessage();
     }
+
+    return 'success';
 }
 
 /**
@@ -974,49 +978,26 @@ function nextcloudsaas_viewCredentials(array $params)
         $collaboraDomain = Helper::getCollaboraDomain($domain);
         $signalingDomain = Helper::getSignalingDomain($domain);
 
-        // Formatar credenciais para exibição
-        $output = "=== CREDENCIAIS DA INSTÂNCIA: {$clientName} ===\n\n";
+        // Construir HTML formatado para exibição no painel
+        $html = nextcloudsaas_buildCredentialsHtml($clientName, $domain, $creds, $serverIp, $collaboraDomain, $signalingDomain);
 
-        $output .= "--- Nextcloud ---\n";
-        $output .= "URL: https://{$domain}\n";
-        $output .= "Utilizador: " . (!empty($creds['nextcloud_user']) ? $creds['nextcloud_user'] : 'admin') . "\n";
-        $output .= "Password: " . (!empty($creds['nextcloud_pass']) ? $creds['nextcloud_pass'] : '(não disponível)') . "\n\n";
-
-        $output .= "--- Collabora Online ---\n";
-        $output .= "URL: https://{$collaboraDomain}\n";
-        $output .= "Admin: admin\n";
-        $output .= "Password: " . (!empty($creds['collabora_pass']) ? $creds['collabora_pass'] : '(não disponível)') . "\n\n";
-
-        $output .= "--- Base de Dados (MariaDB) ---\n";
-        $output .= "Host: " . (!empty($creds['db_host']) ? $creds['db_host'] : $clientName . '-db') . "\n";
-        $output .= "Database: " . (!empty($creds['db_name']) ? $creds['db_name'] : 'nextcloud') . "\n";
-        $output .= "Utilizador: " . (!empty($creds['db_user']) ? $creds['db_user'] : 'nextcloud') . "\n";
-        $output .= "Password: " . (!empty($creds['db_password']) ? $creds['db_password'] : '(não disponível)') . "\n";
-        $output .= "Root Password: " . (!empty($creds['db_root_password']) ? $creds['db_root_password'] : '(não disponível)') . "\n\n";
-
-        $output .= "--- TURN Server ---\n";
-        $output .= "Secret: " . (!empty($creds['turn_secret']) ? $creds['turn_secret'] : '(não disponível)') . "\n";
-        $output .= "Porta: " . (!empty($creds['turn_port']) ? $creds['turn_port'] : '(não disponível)') . "\n";
-        $output .= "Endereço: turn:{$serverIp}:" . (!empty($creds['turn_port']) ? $creds['turn_port'] : '?') . "\n\n";
-
-        $output .= "--- Signaling Server ---\n";
-        $output .= "URL: https://{$signalingDomain}\n";
-        $output .= "Secret: " . (!empty($creds['signaling_secret']) ? $creds['signaling_secret'] : '(não disponível)') . "\n\n";
-
-        $output .= "--- HaRP (AppAPI) ---\n";
-        $output .= "Shared Key: " . (!empty($creds['harp_shared_key']) ? $creds['harp_shared_key'] : '(não disponível)') . "\n\n";
-
-        $output .= "--- DNS Necessários ---\n";
-        $output .= "{$domain} → {$serverIp}\n";
-        $output .= "{$collaboraDomain} → {$serverIp}\n";
-        $output .= "{$signalingDomain} → {$serverIp}\n";
-
-        // Retornar como string — o WHMCS exibe como mensagem ao admin
-        return $output;
+        // Gravar na sessão para exibir no AdminServicesTabFields
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        $_SESSION['nextcloudsaas_panel'] = [
+            'type'      => 'credentials',
+            'title'     => 'Credenciais da Instância: ' . $clientName,
+            'content'   => $html,
+            'serviceid' => $params['serviceid'],
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
 
     } catch (\Exception $e) {
         return 'Exceção ao obter credenciais: ' . $e->getMessage();
     }
+
+    return 'success';
 }
 
 /**
@@ -1051,16 +1032,219 @@ function nextcloudsaas_viewLogs(array $params)
 
         $logs = trim($result['output']);
 
-        if (empty($logs)) {
-            return "=== LOGS: {$containerName} ===\n\n(Sem logs disponíveis)";
+        // Gravar na sessão para exibir no AdminServicesTabFields
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
         }
-
-        // Retornar logs formatados — o WHMCS exibe como mensagem ao admin
-        return "=== LOGS: {$containerName} (últimas 50 linhas) ===\n\n" . $logs;
+        $_SESSION['nextcloudsaas_panel'] = [
+            'type'      => 'logs',
+            'title'     => 'Logs: ' . $containerName . ' (últimas 50 linhas)',
+            'content'   => !empty($logs) ? $logs : '(Sem logs disponíveis)',
+            'serviceid' => $params['serviceid'],
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
 
     } catch (\Exception $e) {
         return 'Exceção ao obter logs: ' . $e->getMessage();
     }
+
+    return 'success';
+}
+
+// =============================================================================
+// FUNÇÕES AUXILIARES DE RENDERIZAÇÃO HTML
+// =============================================================================
+
+/**
+ * Constrói HTML formatado com as credenciais da instância.
+ *
+ * @param string $clientName      Nome do cliente
+ * @param string $domain          Domínio principal
+ * @param array  $creds           Credenciais parseadas
+ * @param string $serverIp        IP do servidor
+ * @param string $collaboraDomain Domínio do Collabora
+ * @param string $signalingDomain Domínio do Signaling
+ * @return string HTML formatado
+ */
+function nextcloudsaas_buildCredentialsHtml($clientName, $domain, $creds, $serverIp, $collaboraDomain, $signalingDomain)
+{
+    $e = function($v) { return htmlspecialchars($v, ENT_QUOTES, 'UTF-8'); };
+
+    $sections = [
+        [
+            'icon'  => '☁',
+            'title' => 'Nextcloud',
+            'color' => '#0082c9',
+            'rows'  => [
+                ['URL', '<a href="https://' . $e($domain) . '" target="_blank">https://' . $e($domain) . '</a>'],
+                ['Utilizador', !empty($creds['nextcloud_user']) ? $e($creds['nextcloud_user']) : 'admin'],
+                ['Password', !empty($creds['nextcloud_pass']) ? '<code>' . $e($creds['nextcloud_pass']) . '</code>' : '<em>(não disponível)</em>'],
+            ],
+        ],
+        [
+            'icon'  => '📝',
+            'title' => 'Collabora Online',
+            'color' => '#1b6a37',
+            'rows'  => [
+                ['URL', '<a href="https://' . $e($collaboraDomain) . '" target="_blank">https://' . $e($collaboraDomain) . '</a>'],
+                ['Admin', 'admin'],
+                ['Password', !empty($creds['collabora_pass']) ? '<code>' . $e($creds['collabora_pass']) . '</code>' : '<em>(não disponível)</em>'],
+            ],
+        ],
+        [
+            'icon'  => '🗄',
+            'title' => 'Base de Dados (MariaDB)',
+            'color' => '#c0392b',
+            'rows'  => [
+                ['Host', !empty($creds['db_host']) ? $e($creds['db_host']) : $e($clientName . '-db')],
+                ['Database', !empty($creds['db_name']) ? $e($creds['db_name']) : 'nextcloud'],
+                ['Utilizador', !empty($creds['db_user']) ? $e($creds['db_user']) : 'nextcloud'],
+                ['Password', !empty($creds['db_password']) ? '<code>' . $e($creds['db_password']) . '</code>' : '<em>(não disponível)</em>'],
+                ['Root Password', !empty($creds['db_root_password']) ? '<code>' . $e($creds['db_root_password']) . '</code>' : '<em>(não disponível)</em>'],
+            ],
+        ],
+        [
+            'icon'  => '📞',
+            'title' => 'TURN Server',
+            'color' => '#8e44ad',
+            'rows'  => [
+                ['Secret', !empty($creds['turn_secret']) ? '<code style="font-size:11px;">' . $e($creds['turn_secret']) . '</code>' : '<em>(não disponível)</em>'],
+                ['Porta', !empty($creds['turn_port']) ? $e($creds['turn_port']) : '<em>(não disponível)</em>'],
+                ['Endereço', 'turn:' . $e($serverIp) . ':' . (!empty($creds['turn_port']) ? $e($creds['turn_port']) : '?')],
+            ],
+        ],
+        [
+            'icon'  => '📡',
+            'title' => 'Signaling Server (HPB)',
+            'color' => '#2980b9',
+            'rows'  => [
+                ['URL', '<a href="https://' . $e($signalingDomain) . '" target="_blank">https://' . $e($signalingDomain) . '</a>'],
+                ['Secret', !empty($creds['signaling_secret']) ? '<code style="font-size:11px;">' . $e($creds['signaling_secret']) . '</code>' : '<em>(não disponível)</em>'],
+            ],
+        ],
+        [
+            'icon'  => '🔗',
+            'title' => 'HaRP (AppAPI)',
+            'color' => '#e67e22',
+            'rows'  => [
+                ['Shared Key', !empty($creds['harp_shared_key']) ? '<code style="font-size:11px;">' . $e($creds['harp_shared_key']) . '</code>' : '<em>(não disponível)</em>'],
+            ],
+        ],
+        [
+            'icon'  => '🌐',
+            'title' => 'DNS Necessários (Registro A)',
+            'color' => '#34495e',
+            'rows'  => [
+                [$e($domain), $e($serverIp)],
+                [$e($collaboraDomain), $e($serverIp)],
+                [$e($signalingDomain), $e($serverIp)],
+            ],
+        ],
+    ];
+
+    $html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin:10px 0;">';
+
+    foreach ($sections as $sec) {
+        $html .= '<div style="border:1px solid #ddd;border-radius:6px;overflow:hidden;background:#fff;">';
+        $html .= '<div style="background:' . $sec['color'] . ';color:#fff;padding:8px 12px;font-weight:bold;font-size:13px;">';
+        $html .= $sec['icon'] . ' ' . $sec['title'] . '</div>';
+        $html .= '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+        foreach ($sec['rows'] as $row) {
+            $html .= '<tr>';
+            $html .= '<td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-weight:bold;width:35%;color:#555;">' . $row[0] . '</td>';
+            $html .= '<td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;word-break:break-all;">' . $row[1] . '</td>';
+            $html .= '</tr>';
+        }
+        $html .= '</table></div>';
+    }
+
+    $html .= '</div>';
+    return $html;
+}
+
+/**
+ * Renderiza o painel de informações gravado na sessão PHP.
+ *
+ * Verifica se existe um painel pendente na sessão (credenciais, logs ou estado)
+ * e retorna o HTML formatado para exibição no AdminServicesTabFields.
+ *
+ * @param int $serviceId ID do serviço atual
+ * @return string|null HTML do painel ou null se não houver
+ */
+function nextcloudsaas_renderSessionPanel($serviceId)
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+
+    if (empty($_SESSION['nextcloudsaas_panel'])) {
+        return null;
+    }
+
+    $panel = $_SESSION['nextcloudsaas_panel'];
+
+    // Verificar se é para este serviço
+    if (isset($panel['serviceid']) && $panel['serviceid'] != $serviceId) {
+        return null;
+    }
+
+    // Limpar a sessão (exibir apenas uma vez)
+    unset($_SESSION['nextcloudsaas_panel']);
+
+    $type = $panel['type'];
+    $title = htmlspecialchars($panel['title'], ENT_QUOTES, 'UTF-8');
+    $timestamp = htmlspecialchars($panel['timestamp'], ENT_QUOTES, 'UTF-8');
+
+    if ($type === 'credentials') {
+        // Conteúdo já é HTML formatado
+        $bodyHtml = $panel['content'];
+        $borderColor = '#0082c9';
+        $headerBg = '#0082c9';
+    } elseif ($type === 'logs') {
+        $bodyHtml = '<pre style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:4px;'
+            . 'font-size:11px;line-height:1.4;max-height:400px;overflow:auto;white-space:pre-wrap;word-wrap:break-word;">'
+            . htmlspecialchars($panel['content'], ENT_QUOTES, 'UTF-8') . '</pre>';
+        $borderColor = '#e67e22';
+        $headerBg = '#e67e22';
+    } elseif ($type === 'status') {
+        $content = $panel['content'];
+        $runningCount = substr_count(strtolower($content), 'running');
+        $totalContainers = 10;
+
+        if ($runningCount >= $totalContainers) {
+            $statusBadge = '<span style="background:#27ae60;color:#fff;padding:2px 8px;border-radius:3px;font-size:11px;">'
+                . 'ATIVO (' . $runningCount . '/' . $totalContainers . ')</span>';
+            $borderColor = '#27ae60';
+            $headerBg = '#27ae60';
+        } elseif ($runningCount > 0) {
+            $statusBadge = '<span style="background:#f39c12;color:#fff;padding:2px 8px;border-radius:3px;font-size:11px;">'
+                . 'PARCIAL (' . $runningCount . '/' . $totalContainers . ')</span>';
+            $borderColor = '#f39c12';
+            $headerBg = '#f39c12';
+        } else {
+            $statusBadge = '<span style="background:#e74c3c;color:#fff;padding:2px 8px;border-radius:3px;font-size:11px;">'
+                . 'PARADO (0/' . $totalContainers . ')</span>';
+            $borderColor = '#e74c3c';
+            $headerBg = '#e74c3c';
+        }
+
+        $bodyHtml = '<div style="margin-bottom:8px;">' . $statusBadge . '</div>'
+            . '<pre style="background:#f8f9fa;padding:10px;border-radius:4px;font-size:11px;'
+            . 'line-height:1.4;max-height:300px;overflow:auto;white-space:pre-wrap;word-wrap:break-word;">'
+            . htmlspecialchars($content, ENT_QUOTES, 'UTF-8') . '</pre>';
+    } else {
+        return null;
+    }
+
+    $html = '<div style="border:2px solid ' . $borderColor . ';border-radius:8px;overflow:hidden;margin:10px 0;">';
+    $html .= '<div style="background:' . $headerBg . ';color:#fff;padding:10px 15px;font-weight:bold;font-size:14px;">';
+    $html .= $title;
+    $html .= '<span style="float:right;font-size:11px;font-weight:normal;opacity:0.8;">' . $timestamp . '</span>';
+    $html .= '</div>';
+    $html .= '<div style="padding:15px;background:#fff;">' . $bodyHtml . '</div>';
+    $html .= '</div>';
+
+    return $html;
 }
 
 // =============================================================================
@@ -1072,6 +1256,8 @@ function nextcloudsaas_viewLogs(array $params)
  *
  * Exibe informações detalhadas sobre a instância Nextcloud na página
  * de gestão do serviço no painel de administração do WHMCS.
+ * Também renderiza painéis de credenciais, logs e estado quando
+ * solicitados via botões personalizados.
  *
  * @param array $params Parâmetros comuns do módulo
  * @return array
@@ -1079,6 +1265,12 @@ function nextcloudsaas_viewLogs(array $params)
 function nextcloudsaas_AdminServicesTabFields(array $params)
 {
     $fields = [];
+
+    // Verificar se há um painel pendente na sessão (credenciais, logs ou estado)
+    $panelHtml = nextcloudsaas_renderSessionPanel($params['serviceid']);
+    if ($panelHtml !== null) {
+        $fields['&nbsp;'] = $panelHtml;
+    }
 
     try {
         $domain = isset($params['domain']) ? $params['domain'] : '';
