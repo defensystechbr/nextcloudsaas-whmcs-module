@@ -1,0 +1,35 @@
+{
+    "schema": "1.0",
+    "type": "whmcs-servers",
+    "name": "nextcloudsaas",
+    "license": "proprietary",
+    "category": "servers",
+    "description": {
+        "name": "Nextcloud SaaS",
+        "tagline": "Gestão automatizada de instâncias Nextcloud como serviço SaaS",
+        "long": "Módulo de provisionamento WHMCS para gestão completa de instâncias Nextcloud SaaS. Integra-se com o manage.sh v10.0 existente no servidor, que gere instâncias com 10 containers cada (app, db, redis, collabora, turn, cron, harp, nats, janus, signaling) atrás de um proxy Traefik com SSL automático via Let's Encrypt. Suporta criação, suspensão, reativação, terminação, backup, atualização e gestão de utilizadores via API OCS e occ.",
+        "features": [
+            "Provisionamento automático de instâncias Nextcloud com 10 containers",
+            "Integração direta com manage.sh v10.0 existente",
+            "SSL automático via Traefik/Let's Encrypt",
+            "Collabora Online integrado para edição de documentos",
+            "Nextcloud Talk com HPB completo (NATS + Janus + Signaling)",
+            "HaRP para AppAPI",
+            "Gestão de utilizadores via API OCS e occ",
+            "Backup automático antes de terminação",
+            "Atualização de instâncias via WHMCS",
+            "Monitorização de uso de disco",
+            "Área de cliente personalizada com informações detalhadas",
+            "Suporte a autenticação SSH por password e chave"
+        ]
+    },
+    "version": "2.3.0",
+    "authors": [
+        {
+            "name": "Defensys / Manus AI"
+        }
+    ],
+    "support": {
+        "email": "suporte@defensys.com.br"
+    }
+}
