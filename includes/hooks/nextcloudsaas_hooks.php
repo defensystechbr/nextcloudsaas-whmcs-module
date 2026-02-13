@@ -9,7 +9,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.4.1
+ * @version    2.4.2
  */
 
 if (!defined("WHMCS")) {
@@ -18,9 +18,6 @@ if (!defined("WHMCS")) {
 
 /**
  * Hook executado após a criação bem-sucedida de um serviço.
- *
- * Regista no log de atividades do WHMCS a criação da instância
- * com os 3 domínios DNS configurados.
  */
 add_hook('AfterModuleCreate', 1, function ($vars) {
     try {
@@ -170,24 +167,19 @@ add_hook('AfterModuleChangePackage', 1, function ($vars) {
  * Injeta JavaScript na área de cliente para personalizar a tela de domínio
  * quando o produto no carrinho usa o módulo nextcloudsaas.
  *
- * O JavaScript:
- *   1. Detecta se estamos na página de configuração de domínio do carrinho
- *   2. Verifica se o produto é Nextcloud (via slug na URL)
- *   3. Remove o prefixo "www." e o campo de TLD
- *   4. Substitui por um campo único com placeholder informativo
- *   5. Adiciona instruções sobre os registros DNS necessários
+ * Correções v2.4.2:
+ *   - Campo TLD completamente escondido (incluindo wrappers)
+ *   - Mensagem DNS aparece apenas uma vez (ID único para evitar duplicação)
+ *   - Mensagem DNS inclui tipo de registro (A) e IP do servidor em tabela
  *
  * Só afeta produtos com "nextcloud" na URL do carrinho.
  */
 add_hook('ClientAreaHeadOutput', 1, function ($vars) {
 
-    // Executar na página do carrinho ou da loja (Store)
-    // O WHMCS pode usar 'cart', 'store' ou outro filename dependendo da configuração de Friendly URLs
     $allowedPages = ['cart', 'store', 'configureproduct'];
     $filename = isset($vars['filename']) ? $vars['filename'] : '';
     $requestUri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
     
-    // Verificar pelo filename OU pela URL (para Friendly URLs)
     $isCartPage = in_array($filename, $allowedPages) || 
                   strpos($requestUri, '/store/') !== false || 
                   strpos($requestUri, '/cart/') !== false;
@@ -196,15 +188,23 @@ add_hook('ClientAreaHeadOutput', 1, function ($vars) {
         return '';
     }
 
-    return <<<'HOOKHTML'
+    $serverIp = '200.50.151.21';
+
+    return <<<HOOKHTML
 <script type="text/javascript">
 document.addEventListener('DOMContentLoaded', function() {
 
-    // Verificar se estamos na página de um produto Nextcloud
     var url = window.location.href.toLowerCase();
     if (url.indexOf('nextcloud') === -1) {
         return;
     }
+
+    // Evitar execução duplicada
+    if (document.getElementById('nextcloud-dns-info')) {
+        return;
+    }
+
+    var serverIp = '{$serverIp}';
 
     // Procurar o campo de domínio com prefixo "www."
     var allAddons = document.querySelectorAll('.input-group-addon, .input-group-text');
@@ -223,52 +223,72 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
-    // Encontrar os elementos do formulário
-    var sldInput = domainGroup.querySelector('input[type="text"]');
-    var tldElements = domainGroup.querySelectorAll('select, .input-group-addon:not(:first-child), .input-group-text:not(:first-child)');
+    // Encontrar o campo de input do domínio (SLD)
+    var sldInput = document.getElementById('owndomainsld') || domainGroup.querySelector('input[type="text"]');
 
-    // Esconder o "www."
-    if (wwwAddon) {
-        wwwAddon.style.display = 'none';
-    }
-
-    // Esconder o campo de TLD e addons extras
-    for (var j = 0; j < tldElements.length; j++) {
-        var el = tldElements[j];
-        if (el !== wwwAddon && el !== sldInput) {
-            el.style.display = 'none';
-            // Esconder também o parent se for input-group-append
-            if (el.parentElement && el.parentElement.classList.contains('input-group-append')) {
-                el.parentElement.style.display = 'none';
-            }
+    // 1. Esconder TUDO dentro do input-group, exceto o campo de input principal
+    var children = domainGroup.querySelectorAll('*');
+    for (var j = 0; j < children.length; j++) {
+        var child = children[j];
+        if (child === sldInput) continue;
+        if (child.contains && child.contains(sldInput)) continue;
+        
+        // Esconder addons, selects, e wrappers de TLD
+        if (child.classList.contains('input-group-addon') ||
+            child.classList.contains('input-group-text') ||
+            child.classList.contains('input-group-prepend') ||
+            child.classList.contains('input-group-append') ||
+            child.tagName === 'SELECT') {
+            child.style.display = 'none';
         }
     }
 
-    // Ajustar o campo de input
+    // 2. Ajustar o campo de input
     if (sldInput) {
         sldInput.setAttribute('placeholder', 'ex: nextcloud.suaempresa.com.br');
         sldInput.style.borderRadius = '4px';
+        sldInput.style.width = '100%';
     }
 
-    // Alterar o título da secção
+    // 3. Alterar o título da secção
     var headings = document.querySelectorAll('h2, h3, .header-lined, .sub-heading');
     for (var k = 0; k < headings.length; k++) {
         var txt = headings[k].textContent.toLowerCase();
-        if (txt.indexOf('domínio') !== -1 || txt.indexOf('dominio') !== -1 || txt.indexOf('domain') !== -1) {
+        if (txt.indexOf('dom') !== -1) {
             headings[k].textContent = 'Informe o Domínio da Instância Nextcloud';
             break;
         }
     }
 
-    // Adicionar instruções sobre DNS
+    // 4. Adicionar instruções sobre DNS (apenas uma vez, com ID único)
     var parentContainer = domainGroup.parentElement;
     if (parentContainer) {
         var dnsInfo = document.createElement('div');
-        dnsInfo.style.cssText = 'margin-top: 15px; padding: 12px 16px; background: #f0f7ff; border-left: 4px solid #0082c9; border-radius: 4px; font-size: 0.9em; line-height: 1.6;';
-        dnsInfo.innerHTML = '<strong>Importante:</strong> Antes de prosseguir, crie 3 registros DNS do tipo A apontando para o IP do servidor:' +
-            '<br><code style="background:#e8e8e8; padding:2px 6px; border-radius:3px; margin:2px 0; display:inline-block;">seudominio.com.br</code>' +
-            '<br><code style="background:#e8e8e8; padding:2px 6px; border-radius:3px; margin:2px 0; display:inline-block;">collabora-seudominio.com.br</code>' +
-            '<br><code style="background:#e8e8e8; padding:2px 6px; border-radius:3px; margin:2px 0; display:inline-block;">signaling-seudominio.com.br</code>';
+        dnsInfo.id = 'nextcloud-dns-info';
+        dnsInfo.style.cssText = 'margin-top: 15px; padding: 12px 16px; background: #f0f7ff; border-left: 4px solid #0082c9; border-radius: 4px; font-size: 0.9em; line-height: 1.8;';
+        dnsInfo.innerHTML = '<strong>Importante:</strong> Antes de prosseguir, crie 3 registros DNS apontando para o IP do servidor:<br><br>' +
+            '<table style="width:100%; border-collapse:collapse; font-size:0.95em;">' +
+            '<tr style="background:#e3f2fd;">' +
+            '<th style="padding:6px 10px; text-align:left; border:1px solid #ccc;">Tipo</th>' +
+            '<th style="padding:6px 10px; text-align:left; border:1px solid #ccc;">Nome (Host)</th>' +
+            '<th style="padding:6px 10px; text-align:left; border:1px solid #ccc;">Valor (Destino)</th>' +
+            '</tr>' +
+            '<tr>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><strong>A</strong></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>seudominio.com.br</code></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
+            '</tr>' +
+            '<tr>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><strong>A</strong></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>collabora-seudominio.com.br</code></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
+            '</tr>' +
+            '<tr>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><strong>A</strong></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>signaling-seudominio.com.br</code></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
+            '</tr>' +
+            '</table>';
         parentContainer.appendChild(dnsInfo);
     }
 });
@@ -281,11 +301,19 @@ HOOKHTML;
  *
  * Remove automaticamente o prefixo "www." se o cliente o incluir
  * no campo de domínio ao encomendar um produto Nextcloud.
+ * Também limpa o TLD caso o cliente tenha digitado o domínio completo no SLD.
  */
 add_hook('ShoppingCartValidateDomain', 1, function ($vars) {
 
+    // Remover www. se presente
     if (isset($_POST['sld']) && strpos($_POST['sld'], 'www.') === 0) {
         $_POST['sld'] = substr($_POST['sld'], 4);
+    }
+
+    // Se o cliente digitou o domínio completo no campo SLD (ex: nextcloud.empresa.com.br)
+    // e o TLD ficou com valor padrão, limpar o TLD para não duplicar
+    if (isset($_POST['sld']) && substr_count($_POST['sld'], '.') >= 2) {
+        $_POST['tld'] = '';
     }
 
     return [];
