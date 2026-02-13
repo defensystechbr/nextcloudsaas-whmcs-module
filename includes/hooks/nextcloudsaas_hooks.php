@@ -9,7 +9,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.4.2
+ * @version    2.4.3
  */
 
 if (!defined("WHMCS")) {
@@ -167,10 +167,13 @@ add_hook('AfterModuleChangePackage', 1, function ($vars) {
  * Injeta JavaScript na área de cliente para personalizar a tela de domínio
  * quando o produto no carrinho usa o módulo nextcloudsaas.
  *
- * Correções v2.4.2:
+* Correções v2.4.2:
  *   - Campo TLD completamente escondido (incluindo wrappers)
  *   - Mensagem DNS aparece apenas uma vez (ID único para evitar duplicação)
  *   - Mensagem DNS inclui tipo de registro (A) e IP do servidor em tabela
+ *
+ * v2.4.3:
+ *   - IP do servidor obtido dinamicamente da tabela tblservers (módulo nextcloudsaas)
  *
  * Só afeta produtos com "nextcloud" na URL do carrinho.
  */
@@ -188,7 +191,32 @@ add_hook('ClientAreaHeadOutput', 1, function ($vars) {
         return '';
     }
 
-    $serverIp = '200.50.151.21';
+    // Obter o IP do servidor dinamicamente da tabela tblservers
+    $serverIp = '0.0.0.0'; // fallback
+    try {
+        if (class_exists('\\WHMCS\\Database\\Capsule')) {
+            $server = \WHMCS\Database\Capsule::table('tblservers')
+                ->where('type', 'nextcloudsaas')
+                ->where('disabled', 0)
+                ->first(['ipaddress', 'hostname']);
+            if ($server) {
+                $serverIp = !empty($server->ipaddress) ? $server->ipaddress : $server->hostname;
+            }
+        }
+    } catch (\Exception $e) {
+        // Se falhar, tenta via PDO direto
+        try {
+            $pdo = \WHMCS\Database\Capsule::connection()->getPdo();
+            $stmt = $pdo->prepare("SELECT ipaddress, hostname FROM tblservers WHERE type = 'nextcloudsaas' AND disabled = 0 LIMIT 1");
+            $stmt->execute();
+            $row = $stmt->fetch(\PDO::FETCH_OBJ);
+            if ($row) {
+                $serverIp = !empty($row->ipaddress) ? $row->ipaddress : $row->hostname;
+            }
+        } catch (\Exception $e2) {
+            // Manter fallback
+        }
+    }
 
     return <<<HOOKHTML
 <script type="text/javascript">
