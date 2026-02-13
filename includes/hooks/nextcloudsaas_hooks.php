@@ -181,8 +181,18 @@ add_hook('AfterModuleChangePackage', 1, function ($vars) {
  */
 add_hook('ClientAreaHeadOutput', 1, function ($vars) {
 
-    // Só executar na página do carrinho
-    if ($vars['filename'] !== 'cart') {
+    // Executar na página do carrinho ou da loja (Store)
+    // O WHMCS pode usar 'cart', 'store' ou outro filename dependendo da configuração de Friendly URLs
+    $allowedPages = ['cart', 'store', 'configureproduct'];
+    $filename = isset($vars['filename']) ? $vars['filename'] : '';
+    $requestUri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+    
+    // Verificar pelo filename OU pela URL (para Friendly URLs)
+    $isCartPage = in_array($filename, $allowedPages) || 
+                  strpos($requestUri, '/store/') !== false || 
+                  strpos($requestUri, '/cart/') !== false;
+    
+    if (!$isCartPage) {
         return '';
     }
 
