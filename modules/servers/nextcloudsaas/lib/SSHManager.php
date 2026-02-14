@@ -680,7 +680,7 @@ class SSHManager
      */
     public function createUser($clientName, $ncUsername, $ncPassword, $email = '', $displayName = '', $quota = '')
     {
-        $innerCmd = sprintf(
+        $bashCmd = sprintf(
             'export OC_PASS=%s && docker exec -u www-data -e OC_PASS %s php occ user:add --password-from-env %s',
             escapeshellarg($ncPassword),
             escapeshellarg($clientName . '-app'),
@@ -688,9 +688,10 @@ class SSHManager
         );
 
         if (!empty($displayName)) {
-            $innerCmd .= ' --display-name=' . escapeshellarg($displayName);
+            $bashCmd .= ' --display-name=' . escapeshellarg($displayName);
         }
 
+        $innerCmd = 'bash -c ' . escapeshellarg($bashCmd);
         $cmd = $this->wrapWithSudo($innerCmd);
         $result = $this->executeCommand($cmd);
 
@@ -729,13 +730,14 @@ class SSHManager
      */
     public function changeUserPassword($clientName, $ncUsername, $newPassword)
     {
-        $innerCmd = sprintf(
+        $bashCmd = sprintf(
             'export OC_PASS=%s && docker exec -u www-data -e OC_PASS %s php occ user:resetpassword --password-from-env %s',
             escapeshellarg($newPassword),
             escapeshellarg($clientName . '-app'),
             escapeshellarg($ncUsername)
         );
 
+        $innerCmd = 'bash -c ' . escapeshellarg($bashCmd);
         $cmd = $this->wrapWithSudo($innerCmd);
         return $this->executeCommand($cmd);
     }

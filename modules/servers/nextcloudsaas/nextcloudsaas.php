@@ -17,7 +17,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.4.1
+ * @version    2.4.5
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/

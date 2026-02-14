@@ -9,7 +9,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.4.4
+ * @version    2.4.5
  */
 
 if (!defined("WHMCS")) {
@@ -172,7 +172,7 @@ add_hook('AfterModuleChangePackage', 1, function ($vars) {
  *   - Mensagem DNS aparece apenas uma vez (ID único para evitar duplicação)
  *   - Mensagem DNS inclui tipo de registro (A) e IP do servidor em tabela
  *
- * v2.4.4:
+ * v2.4.5:
  *   - IP do servidor obtido dinamicamente da tabela tblservers (módulo nextcloudsaas)
  *
  * Só afeta produtos com "nextcloud" na URL do carrinho.
