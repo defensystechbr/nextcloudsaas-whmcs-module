@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.4.5
+# Módulo Nextcloud-SaaS para WHMCS v2.5.0
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.4.5  
+**Versão:** 2.5.0  
 **Licença:** Proprietária
 
 ---
@@ -97,7 +97,7 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 
     | Opção                         | Descrição                                                                                             |
     |-------------------------------|-------------------------------------------------------------------------------------------------------|
-    | **Quota de Armazenamento (GB)** | Define a quota de disco para o utilizador `admin` da instância. Ex: `50`.                             |
+    | **Quota de Armazenamento (GB)** | Define a quota de disco para o utilizador `admin` e a quota padrão para todos os novos utilizadores. Ex: `50`. |
     | **Máximo de Utilizadores**      | Define o número máximo de utilizadores que podem ser criados na instância.                            |
     | **Collabora Online**            | Sempre ativo na arquitetura atual. Pode deixar em `on`.                                               |
     | **Nextcloud Talk (HPB)**        | Ativa o High Performance Backend. Deixe em `on`.                                                      |
@@ -113,10 +113,10 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 - **Validation:** (deixar vazio)
 - **Select Options:** (deixar vazio)
 - **Display Order:** `1`
-- **Admin Only:** ✅ Marcado
-- **Required Field:** ❌ Desmarcado
-- **Show on Order Form:** ❌ Desmarcado
-- **Show on Invoice:** ❌ Desmarcado
+- **Admin Only:** Marcado
+- **Required Field:** Desmarcado
+- **Show on Order Form:** Desmarcado
+- **Show on Invoice:** Desmarcado
 
 **Campo 2: Nextcloud URL**
 - **Field Name:** `Nextcloud URL`
@@ -125,10 +125,10 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 - **Validation:** (deixar vazio)
 - **Select Options:** (deixar vazio)
 - **Display Order:** `2`
-- **Admin Only:** ❌ Desmarcado
-- **Required Field:** ❌ Desmarcado
-- **Show on Order Form:** ❌ Desmarcado
-- **Show on Invoice:** ❌ Desmarcado
+- **Admin Only:** Desmarcado
+- **Required Field:** Desmarcado
+- **Show on Order Form:** Desmarcado
+- **Show on Invoice:** Desmarcado
 
 **Campo 3: Collabora URL**
 - **Field Name:** `Collabora URL`
@@ -137,10 +137,10 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 - **Validation:** (deixar vazio)
 - **Select Options:** (deixar vazio)
 - **Display Order:** `3`
-- **Admin Only:** ❌ Desmarcado
-- **Required Field:** ❌ Desmarcado
-- **Show on Order Form:** ❌ Desmarcado
-- **Show on Invoice:** ❌ Desmarcado
+- **Admin Only:** Desmarcado
+- **Required Field:** Desmarcado
+- **Show on Order Form:** Desmarcado
+- **Show on Invoice:** Desmarcado
 
 **Campo 4: Signaling URL**
 - **Field Name:** `Signaling URL`
@@ -149,10 +149,10 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 - **Validation:** (deixar vazio)
 - **Select Options:** (deixar vazio)
 - **Display Order:** `4`
-- **Admin Only:** ❌ Desmarcado
-- **Required Field:** ❌ Desmarcado
-- **Show on Order Form:** ❌ Desmarcado
-- **Show on Invoice:** ❌ Desmarcado
+- **Admin Only:** Desmarcado
+- **Required Field:** Desmarcado
+- **Show on Order Form:** Desmarcado
+- **Show on Invoice:** Desmarcado
 
 ---
 
@@ -160,27 +160,33 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 
 ### 3.1. Ciclo de Vida do Serviço
 
--   **CreateAccount:** Executa `manage.sh <cliente> <dominio> create`. Cria a instância completa, lê o ficheiro `.credentials` gerado, e guarda a password do admin no WHMCS.
+-   **CreateAccount:** Executa `manage.sh <cliente> <dominio> create`. Cria a instância completa, lê o ficheiro `.credentials` gerado, guarda a password do admin no WHMCS, e define a quota padrão para todos os utilizadores.
 -   **SuspendAccount:** Executa `manage.sh <cliente> _ stop`. Para todos os 10 containers da instância.
 -   **UnsuspendAccount:** Executa `manage.sh <cliente> _ start`. Inicia todos os 10 containers da instância.
 -   **TerminateAccount:** Executa `manage.sh <cliente> _ backup` e depois `manage.sh <cliente> _ remove`. Faz um backup completo antes de apagar permanentemente a instância (containers, volumes e dados).
--   **ChangePackage:** Altera a quota do utilizador `admin` da instância via `occ`.
--   **ChangePassword:** Altera a password do utilizador `admin` da instância via `occ`.
+-   **Renew:** Verifica se a instância está ativa e reinicia se necessário.
+-   **ChangePackage:** Altera a quota do utilizador `admin` e a quota padrão para novos utilizadores via `occ`.
+-   **ChangePassword:** Altera a password do utilizador `admin` via API OCS (método principal) ou `docker exec occ` (fallback SSH).
 
 ### 3.2. Botões Personalizados (Admin)
 
 Na área de administração do WHMCS, na página do serviço do cliente, estão disponíveis os seguintes botões:
 
 -   **Verificar Estado:** Mostra o estado de cada um dos 10 containers.
--   **Reiniciar Instância:** Executa `stop` e `start`.
+-   **Reiniciar Instância:** Executa `stop` e `start` (o manage.sh não tem comando restart).
 -   **Fazer Backup:** Executa o comando de backup do `manage.sh`.
--   **Atualizar Instância:** Executa o comando de atualização do `manage.sh`.
+-   **Atualizar Instância:** Executa o comando de atualização do `manage.sh` (pull + upgrade).
 -   **Testar Conexão SSH:** Valida a comunicação com o servidor.
 -   **Testar API Nextcloud:** Valida a comunicação com a API OCS da instância.
--   **Ver Credenciais:** Mostra o conteúdo do ficheiro `.credentials`.
--   **Ver Logs:** Mostra os últimos 100 logs do container `app`.
+-   **Ver Credenciais:** Mostra o conteúdo do ficheiro `.credentials` em painel HTML formatado.
+-   **Ver Logs:** Mostra as últimas 50 linhas de logs do container `app`.
 
-### 3.3. Área de Cliente
+### 3.3. Botões Personalizados (Cliente)
+
+-   **Verificar Estado:** Mostra o estado dos containers da instância.
+-   **Reiniciar Instância:** Reinicia todos os containers.
+
+### 3.4. Área de Cliente
 
 O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
@@ -195,19 +201,22 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v2.5.0 (2026-02-14):**
+    -   **Correção:** ChangePassword reestruturado — agora usa API OCS do Nextcloud como método principal (mais rápido e fiável), com fallback para SSH/docker exec occ.
+    -   **Correção:** restartInstance no SSHManager corrigido — o manage.sh v10.0 não tem comando `restart`, agora faz `stop` + `start` corretamente.
+    -   **Novo:** Quota padrão para todos os utilizadores — ao criar instância ou alterar pacote, a quota é aplicada tanto ao admin como definida como padrão para novos utilizadores via `config:app:set files default_quota`.
+    -   **Novo:** Função `setDefaultQuota()` no SSHManager para definir quota padrão via `occ config:app:set`.
+    -   **Melhoria:** Logging detalhado no ChangePassword com rastreio de cada etapa (API OCS, fallback SSH).
+    -   **Melhoria:** Mensagens de erro mais informativas incluindo output e error do SSH.
 -   **v2.4.5 (2026-02-13):**
     -   **Novo:** Hook de personalização da tela de domínio no carrinho — remove o prefixo "www." e o campo de TLD, substituindo por um campo único de domínio completo.
     -   **Novo:** Instruções de DNS exibidas automaticamente na tela de pedido (3 registros A necessários).
     -   **Novo:** Validação automática que remove "www." se o cliente o incluir no domínio.
-    -   **Correção:** Revertida a função `getDomain()` (desnecessária — o campo `domain` padrão do WHMCS é suficiente).
--   **v2.4.5 (2026-02-13):**
     -   **Melhoria:** Botões "Ver Credenciais", "Ver Logs" e "Verificar Estado" agora exibem dados em painéis HTML formatados na aba de serviços do admin, em vez de mensagens de erro.
     -   **Correção:** Botão "Ver Credenciais" corrigido — usava método inexistente `credentialsInstance()`, agora usa `getCredentials()`.
     -   **Novo:** Painel de credenciais com layout em grid, organizado por serviço (Nextcloud, Collabora, MariaDB, TURN, Signaling, HaRP, DNS).
     -   **Novo:** Painel de logs com terminal escuro e scroll automático.
     -   **Novo:** Painel de estado com badge colorido (Ativo/Parcial/Parado) e lista detalhada de containers.
--   **v2.3.3 (2026-02-13):**
-    -   Versão intermediária (substituída por v2.4.5).
 -   **v2.3.2 (2026-02-13):**
     -   **Correção:** Botão "Testar API Nextcloud" agora obtém a password real do admin a partir do ficheiro `.credentials` via SSH, corrigindo o erro "Unauthorised".
     -   **Melhoria:** Mensagens de erro mais descritivas no teste de API.
@@ -230,8 +239,9 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 -   `nextcloudsaas.php`: Ficheiro principal com toda a lógica do ciclo de vida, botões e integração com o WHMCS.
 -   `lib/SSHManager.php`: Classe robusta para gerir a comunicação SSH, com métodos que são wrappers diretos dos comandos do `manage.sh`.
 -   `lib/Helper.php`: Funções utilitárias para formatação, validação e extração de configurações.
--   `lib/NextcloudAPI.php`: Cliente para a API OCS do Nextcloud, usado para obter estatísticas de uso.
+-   `lib/NextcloudAPI.php`: Cliente para a API OCS do Nextcloud, usado para testes de conectividade e alteração de passwords.
 -   `templates/clientarea.tpl`: Template Smarty para a área de cliente, com um design moderno e informativo.
 -   `hooks.php`: Adiciona logs de atividade detalhados para cada ação do ciclo de vida.
+-   `includes/hooks/nextcloudsaas_hooks.php`: Hook de personalização do carrinho de compras (domínio e DNS).
 -   `whmcs.json`: Metadados do módulo.
 -   `vendor/`: Contém a biblioteca `phpseclib3`.

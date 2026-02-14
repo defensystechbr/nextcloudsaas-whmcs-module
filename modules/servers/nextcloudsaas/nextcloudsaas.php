@@ -17,7 +17,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.4.5
+ * @version    2.5.0
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -324,12 +324,13 @@ function nextcloudsaas_CreateAccount(array $params)
         nextcloudsaas_saveCustomField($params['serviceid'], 'Collabora URL', 'https://' . $collaboraDomain);
         nextcloudsaas_saveCustomField($params['serviceid'], 'Signaling URL', 'https://' . $signalingDomain);
 
-        // Aplicar quota ao utilizador admin se definida
+        // Aplicar quota ao utilizador admin e definir quota padrão
         if (!empty($productConfig['disk_quota_gb']) && $productConfig['disk_quota_gb'] !== 'none') {
             $quota = Helper::formatQuotaForNextcloud($productConfig['disk_quota_gb']);
-            // Aguardar um pouco para o Nextcloud estar totalmente pronto
-            // A quota será aplicada via occ
+            // Aplicar quota ao admin
             $ssh->setUserQuota($clientName, $adminUser, $quota);
+            // Definir quota padrão para todos os novos utilizadores
+            $ssh->setDefaultQuota($clientName, $quota);
         }
 
     } catch (\Exception $e) {
@@ -493,8 +494,12 @@ function nextcloudsaas_Renew(array $params)
 /**
  * Alterar a password do utilizador admin da instância Nextcloud.
  *
- * Usa o comando occ via SSH para alterar a password diretamente
- * no container Nextcloud.
+ * Método principal: API OCS do Nextcloud (mais rápido e fiável).
+ * Fallback: comando occ via docker exec por SSH.
+ *
+ * A API OCS autentica-se com a password atual obtida do ficheiro
+ * .credentials no servidor, e depois altera para a nova password
+ * enviada pelo WHMCS.
  *
  * @param array $params Parâmetros comuns do módulo
  * @return string "success" ou mensagem de erro
@@ -503,45 +508,70 @@ function nextcloudsaas_ChangePassword(array $params)
 {
     try {
         $clientName = nextcloudsaas_getClientName($params);
-        $username = isset($params['username']) ? $params['username'] : 'admin';
+        $username   = isset($params['username']) ? $params['username'] : 'admin';
         $newPassword = isset($params['password']) ? $params['password'] : '';
+        $domain     = isset($params['domain']) ? $params['domain'] : '';
+
+        Helper::log('ChangePassword-START', [
+            'clientName'  => $clientName,
+            'username'    => $username,
+            'hasPassword' => !empty($newPassword),
+            'passLength'  => strlen($newPassword),
+            'domain'      => !empty($domain) ? $domain : '(empty)',
+        ], 'Início');
 
         if (empty($clientName) || empty($newPassword)) {
-            return "Nome do cliente ou nova password não fornecidos.";
+            return "Nome do cliente ou nova password não fornecidos. "
+                 . "(clientName='{$clientName}', passLen=" . strlen($newPassword) . ")";
         }
 
-        $ssh = nextcloudsaas_getSSHManager($params);
-
-        // Tentar via API OCS primeiro (mais rápido)
-        $domain = isset($params['domain']) ? $params['domain'] : '';
+        // ── Método 1: API OCS (preferido) ──────────────────────────────
         if (!empty($domain)) {
             try {
-                $ncApi = nextcloudsaas_getNextcloudAPI($params);
+                // getNextcloudAPI obtém a password ATUAL do .credentials
+                // para autenticar na API, independente de $params['password']
+                $ncApi  = nextcloudsaas_getNextcloudAPI($params);
                 $result = $ncApi->changeUserPassword($username, $newPassword);
+
+                Helper::log('ChangePassword-API', [
+                    'clientName' => $clientName,
+                    'username'   => $username,
+                    'method'     => 'API OCS',
+                ], $result);
+
                 if ($result['success']) {
-                    Helper::log('ChangePassword', ['clientName' => $clientName, 'method' => 'API'], 'success');
                     return 'success';
                 }
+
+                // Se a API falhou, logar o motivo e tentar SSH
+                Helper::log('ChangePassword-API-FAIL', [
+                    'message' => isset($result['message']) ? $result['message'] : 'Sem mensagem',
+                ], 'Fallback para SSH/occ');
+
             } catch (\Exception $e) {
-                // Fallback para SSH
+                Helper::log('ChangePassword-API-EXCEPTION', [
+                    'error' => $e->getMessage(),
+                ], 'Fallback para SSH/occ');
             }
         }
 
-        // Fallback: alterar via occ no container
+        // ── Método 2: SSH + docker exec occ (fallback) ─────────────────
+        $ssh    = nextcloudsaas_getSSHManager($params);
         $result = $ssh->changeUserPassword($clientName, $username, $newPassword);
 
-        Helper::log('ChangePassword', [
+        Helper::log('ChangePassword-SSH', [
             'clientName' => $clientName,
             'username'   => $username,
             'method'     => 'SSH/occ',
         ], $result);
 
         if (!$result['success']) {
-            return "Erro ao alterar password: " . $result['error'];
+            return "Erro ao alterar password: " . $result['error']
+                 . " (output: " . $result['output'] . ")";
         }
 
     } catch (\Exception $e) {
-        Helper::log('ChangePassword', $params, $e->getMessage(), $e->getTraceAsString());
+        Helper::log('ChangePassword-ERROR', $params, $e->getMessage(), $e->getTraceAsString());
         return $e->getMessage();
     }
 
@@ -570,6 +600,8 @@ function nextcloudsaas_ChangePackage(array $params)
         $quota = Helper::formatQuotaForNextcloud($productConfig['disk_quota_gb']);
 
         $ssh = nextcloudsaas_getSSHManager($params);
+
+        // Alterar quota do admin
         $result = $ssh->setUserQuota($clientName, $username, $quota);
 
         Helper::log('ChangePackage', [
@@ -581,6 +613,9 @@ function nextcloudsaas_ChangePackage(array $params)
         if (!$result['success']) {
             return "Erro ao alterar pacote: " . $result['error'];
         }
+
+        // Atualizar também a quota padrão para novos utilizadores
+        $ssh->setDefaultQuota($clientName, $quota);
 
     } catch (\Exception $e) {
         Helper::log('ChangePackage', $params, $e->getMessage(), $e->getTraceAsString());

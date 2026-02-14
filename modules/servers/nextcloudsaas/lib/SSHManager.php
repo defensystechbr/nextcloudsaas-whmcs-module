@@ -517,14 +517,22 @@ class SSHManager
     }
 
     /**
-     * Reiniciar uma instância
+     * Reiniciar uma instância (stop + start)
+     *
+     * O manage.sh não tem comando 'restart', por isso
+     * executamos stop seguido de start.
      *
      * @param string $clientName Nome do cliente
      * @return array
      */
     public function restartInstance($clientName)
     {
-        return $this->runManage($clientName, '_', 'restart');
+        $stopResult = $this->runManage($clientName, '_', 'stop');
+        if (!$stopResult['success']) {
+            return $stopResult;
+        }
+        sleep(3);
+        return $this->runManage($clientName, '_', 'start');
     }
 
     /**
@@ -780,6 +788,25 @@ class SSHManager
             'user:setting %s files quota %s',
             escapeshellarg($ncUsername),
             escapeshellarg(Helper::formatQuotaForNextcloud($quota))
+        ));
+    }
+
+    /**
+     * Definir a quota padrão para todos os novos utilizadores da instância.
+     *
+     * Usa config:app:set files default_quota para que qualquer novo
+     * utilizador criado na instância receba automaticamente esta quota.
+     *
+     * @param string $clientName Nome da instância
+     * @param string $quota      Quota padrão (ex: "10 GB", "none")
+     * @return array
+     */
+    public function setDefaultQuota($clientName, $quota)
+    {
+        $formattedQuota = Helper::formatQuotaForNextcloud($quota);
+        return $this->runOcc($clientName, sprintf(
+            'config:app:set files default_quota --value %s',
+            escapeshellarg($formattedQuota)
         ));
     }
 
