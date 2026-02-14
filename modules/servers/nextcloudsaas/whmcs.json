@@ -23,7 +23,7 @@
             "Suporte a autenticação SSH por password e chave"
         ]
     },
-    "version": "2.5.1",
+    "version": "2.5.2",
     "authors": [
         {
             "name": "Defensys / Manus AI"

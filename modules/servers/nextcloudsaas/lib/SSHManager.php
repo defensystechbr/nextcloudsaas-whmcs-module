@@ -625,6 +625,52 @@ class SSHManager
     }
 
     /**
+     * Atualizar a password no ficheiro .credentials de uma instância
+     *
+     * Usa sed para substituir a linha "  Senha: <password_antiga>" na secção
+     * Nextcloud do ficheiro .credentials pela nova password.
+     * Apenas a primeira ocorrência de "  Senha:" é substituída (a do Nextcloud).
+     *
+     * @param string $clientName Nome do cliente
+     * @param string $newPassword Nova password
+     * @return array
+     */
+    public function updateCredentialsPassword($clientName, $newPassword)
+    {
+        $credFile = $this->basePath . '/' . $clientName . '/.credentials';
+
+        // Escapar caracteres especiais do sed na password de substituição:
+        // / & \ [ ] precisam de escape no replacement do sed
+        $escapedPassword = str_replace(
+            ['\\', '/', '&', '[', ']'],
+            ['\\\\', '\\/', '\\&', '\\[', '\\]'],
+            $newPassword
+        );
+
+        // Usar sed para substituir apenas a primeira ocorrência de "  Senha: ..."
+        // que corresponde à password do Nextcloud (a primeira no ficheiro)
+        $sedExpression = '0,/^  Senha: /{s/^  Senha: .*/  Senha: ' . $escapedPassword . '/}';
+        $sedCmd = 'sed -i ' . escapeshellarg($sedExpression) . ' ' . escapeshellarg($credFile);
+
+        $cmd = $this->wrapWithSudo($sedCmd);
+        $result = $this->executeCommand($cmd, 10);
+
+        if ($result['success']) {
+            Helper::log('updateCredentialsPassword', [
+                'clientName' => $clientName,
+                'status'     => 'Password atualizada no .credentials',
+            ]);
+        } else {
+            Helper::log('updateCredentialsPassword-FAIL', [
+                'clientName' => $clientName,
+                'error'      => $result['error'],
+            ]);
+        }
+
+        return $result;
+    }
+
+    /**
      * Ler o ficheiro .env de uma instância
      *
      * @param string $clientName Nome do cliente

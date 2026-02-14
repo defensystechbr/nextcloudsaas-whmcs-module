@@ -17,7 +17,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.5.1
+ * @version    2.5.2
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -542,6 +542,15 @@ function nextcloudsaas_ChangePassword(array $params)
                 ], $result);
 
                 if ($result['success']) {
+                    // Atualizar o .credentials com a nova password
+                    try {
+                        $ssh = nextcloudsaas_getSSHManager($params);
+                        $ssh->updateCredentialsPassword($clientName, $newPassword);
+                    } catch (\Exception $e) {
+                        Helper::log('ChangePassword-CRED-UPDATE-FAIL', [
+                            'error' => $e->getMessage(),
+                        ], 'Password alterada mas .credentials não atualizado');
+                    }
                     return 'success';
                 }
 
@@ -570,6 +579,15 @@ function nextcloudsaas_ChangePassword(array $params)
         if (!$result['success']) {
             return "Erro ao alterar password: " . $result['error']
                  . " (output: " . $result['output'] . ")";
+        }
+
+        // Atualizar o .credentials com a nova password
+        try {
+            $ssh->updateCredentialsPassword($clientName, $newPassword);
+        } catch (\Exception $e2) {
+            Helper::log('ChangePassword-CRED-UPDATE-FAIL', [
+                'error' => $e2->getMessage(),
+            ], 'Password alterada via SSH mas .credentials não atualizado');
         }
 
     } catch (\Exception $e) {
