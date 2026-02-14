@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.5.0
+# Módulo Nextcloud-SaaS para WHMCS v2.5.1
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.5.0  
+**Versão:** 2.5.1  
 **Licença:** Proprietária
 
 ---
@@ -201,6 +201,9 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v2.5.1 (2026-02-14):**
+    -   **Correção crítica:** Username do Nextcloud agora é sempre `admin` (hardcoded). O `$params['username']` do WHMCS pode estar truncado ou diferente (ex: `nextclou`), causando erro "User does not exist" no ChangePassword e outras funções.
+    -   Corrigido em: ChangePassword, ChangePackage, ClientArea e AdminServicesTabFields.
 -   **v2.5.0 (2026-02-14):**
     -   **Correção:** ChangePassword reestruturado — agora usa API OCS do Nextcloud como método principal (mais rápido e fiável), com fallback para SSH/docker exec occ.
     -   **Correção:** restartInstance no SSHManager corrigido — o manage.sh v10.0 não tem comando `restart`, agora faz `stop` + `start` corretamente.

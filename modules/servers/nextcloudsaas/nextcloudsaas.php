@@ -17,7 +17,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.5.0
+ * @version    2.5.1
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -508,9 +508,11 @@ function nextcloudsaas_ChangePassword(array $params)
 {
     try {
         $clientName = nextcloudsaas_getClientName($params);
-        $username   = isset($params['username']) ? $params['username'] : 'admin';
+        // O username do Nextcloud é sempre 'admin' — o $params['username']
+        // do WHMCS pode estar truncado ou ser diferente (ex: 'nextclou')
+        $username    = 'admin';
         $newPassword = isset($params['password']) ? $params['password'] : '';
-        $domain     = isset($params['domain']) ? $params['domain'] : '';
+        $domain      = isset($params['domain']) ? $params['domain'] : '';
 
         Helper::log('ChangePassword-START', [
             'clientName'  => $clientName,
@@ -591,7 +593,8 @@ function nextcloudsaas_ChangePackage(array $params)
     try {
         $clientName = nextcloudsaas_getClientName($params);
         $productConfig = Helper::getProductConfig($params);
-        $username = isset($params['username']) ? $params['username'] : 'admin';
+        // O username do Nextcloud é sempre 'admin'
+        $username = 'admin';
 
         if (empty($clientName)) {
             return "Nome do cliente não encontrado para este serviço.";
@@ -1365,7 +1368,8 @@ function nextcloudsaas_AdminServicesTabFields(array $params)
             // Tentar obter informações via API
             try {
                 $ncApi = nextcloudsaas_getNextcloudAPI($params);
-                $username = isset($params['username']) ? $params['username'] : 'admin';
+                // O username do Nextcloud é sempre 'admin'
+                $username = 'admin';
                 if (!empty($username)) {
                     $storageInfo = $ncApi->getUserStorageInfo($username);
                     if ($storageInfo['success']) {
@@ -1461,7 +1465,8 @@ function nextcloudsaas_UsageUpdate(array $params)
 function nextcloudsaas_ClientArea(array $params)
 {
     $domain = isset($params['domain']) ? $params['domain'] : '';
-    $username = isset($params['username']) ? $params['username'] : '';
+    // O username do Nextcloud é sempre 'admin'
+    $username = 'admin';
     $clientName = nextcloudsaas_getClientName($params);
 
     $collaboraDomain = Helper::getCollaboraDomain($domain);
