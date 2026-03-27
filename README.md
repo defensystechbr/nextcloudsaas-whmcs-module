@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.5.3
+# Módulo Nextcloud-SaaS para WHMCS v2.5.4
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.5.3  
+**Versão:** 2.5.4  
 **Licença:** Proprietária
 
 ---
@@ -201,6 +201,12 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v2.5.4 (2026-03-27):**
+    -   **Correção definitiva do formulário de domínio:** Removida a dependência do formulário SLD/TLD do WHMCS (que rejeitava subdomínios como `next-jaguar.defensys.seg.br`). Agora utiliza um Custom Field "Domínio da Instância" para capturar o hostname completo sem restrições.
+    -   **Novo hook `AfterShoppingCartCheckout`:** Copia automaticamente o valor do Custom Field para o campo Domain do serviço, garantindo que `$params['domain']` funciona corretamente em todas as funções do módulo.
+    -   **Novo hook `ServiceEdit`:** Sincroniza o campo Domain com o Custom Field quando o serviço é editado no admin.
+    -   **JavaScript simplificado:** Mostra instruções DNS junto ao campo de domínio e adiciona validação básica de formato.
+    -   **Configuração necessária:** Desativar "Require Domain" no produto e criar Custom Field "Domínio da Instância" (Text Box, obrigatório, Show on Order Form).
 -   **v2.5.3 (2026-03-27):**
     -   Corrigida validação de domínio no formulário de order: adicionado `seg.br` e todos os TLDs brasileiros à lista de TLDs compostos
     -   Lista de TLDs compostos expandida para incluir TLDs internacionais comuns (PT, AR, MX, CO, etc.)

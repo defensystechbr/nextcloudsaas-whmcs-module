@@ -9,7 +9,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.4.5
+ * @version    2.5.4
  */
 
 if (!defined("WHMCS")) {
@@ -158,36 +158,35 @@ add_hook('AfterModuleChangePackage', 1, function ($vars) {
 });
 
 // =============================================================================
-// HOOKS DE PERSONALIZAÇÃO DA TELA DE DOMÍNIO NO CARRINHO
+// HOOKS DE PERSONALIZAÇÃO DO CARRINHO E CHECKOUT
 // =============================================================================
 
 /**
  * Hook: ClientAreaHeadOutput
  *
- * Injeta JavaScript na área de cliente para personalizar a tela de domínio
- * quando o produto no carrinho usa o módulo nextcloudsaas.
+ * Injeta JavaScript na área de cliente para:
+ * 1. Na página de configuração do produto (confproduct): mostrar instruções DNS
+ *    junto ao Custom Field "Domínio da Instância" e validar o formato do domínio.
+ * 2. Atualizar dinamicamente os exemplos DNS com o domínio digitado pelo cliente.
  *
-* Correções v2.4.2:
- *   - Campo TLD completamente escondido (incluindo wrappers)
- *   - Mensagem DNS aparece apenas uma vez (ID único para evitar duplicação)
- *   - Mensagem DNS inclui tipo de registro (A) e IP do servidor em tabela
+ * v2.5.4:
+ *   - Removida toda a manipulação do formulário de domínio SLD/TLD do WHMCS
+ *   - O produto usa "Require Domain = Do not allow" no WHMCS
+ *   - O domínio é capturado via Custom Field "Domínio da Instância"
+ *   - Via hook AfterShoppingCartCheckout, o Custom Field é copiado para o campo Domain
  *
- * v2.4.5:
- *   - IP do servidor obtido dinamicamente da tabela tblservers (módulo nextcloudsaas)
- *
- * Só afeta produtos com "nextcloud" na URL do carrinho.
+ * Só afeta páginas com "nextcloud" na URL.
  */
 add_hook('ClientAreaHeadOutput', 1, function ($vars) {
 
-    $allowedPages = ['cart', 'store', 'configureproduct'];
-    $filename = isset($vars['filename']) ? $vars['filename'] : '';
     $requestUri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
-    
-    $isCartPage = in_array($filename, $allowedPages) || 
-                  strpos($requestUri, '/store/') !== false || 
-                  strpos($requestUri, '/cart/') !== false;
-    
-    if (!$isCartPage) {
+
+    // Só injetar JS em páginas relevantes do carrinho/store
+    $isRelevant = strpos($requestUri, '/store/') !== false ||
+                  strpos($requestUri, '/cart') !== false ||
+                  strpos($requestUri, 'confproduct') !== false;
+
+    if (!$isRelevant) {
         return '';
     }
 
@@ -204,7 +203,6 @@ add_hook('ClientAreaHeadOutput', 1, function ($vars) {
             }
         }
     } catch (\Exception $e) {
-        // Se falhar, tenta via PDO direto
         try {
             $pdo = \WHMCS\Database\Capsule::connection()->getPdo();
             $stmt = $pdo->prepare("SELECT ipaddress, hostname FROM tblservers WHERE type = 'nextcloudsaas' AND disabled = 0 LIMIT 1");
@@ -234,176 +232,336 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var serverIp = '{$serverIp}';
 
-    // Encontrar os campos de domínio pelo ID
-    var sldInput = document.getElementById('owndomainsld');
-    var tldInput = document.getElementById('owndomaintld');
-
-    if (!sldInput) {
-        return;
-    }
-
-    // 1. Esconder o prefixo "www." — procurar addon dentro do input-group do SLD
-    var sldGroup = sldInput.closest('.input-group');
-    if (sldGroup) {
-        var addons = sldGroup.querySelectorAll('.input-group-addon, .input-group-text, .input-group-prepend');
-        for (var i = 0; i < addons.length; i++) {
-            if (addons[i].textContent.trim() === 'www.' || addons[i].querySelector && addons[i].querySelector('.input-group-text')) {
-                addons[i].style.display = 'none';
+    // Encontrar o Custom Field "Domínio da Instância"
+    // O WHMCS renderiza custom fields com labels que contêm o nome do campo
+    var domainField = null;
+    var domainLabel = null;
+    var labels = document.querySelectorAll('label');
+    for (var i = 0; i < labels.length; i++) {
+        var labelText = labels[i].textContent.trim().toLowerCase();
+        if (labelText.indexOf('dom') !== -1 && labelText.indexOf('inst') !== -1) {
+            domainLabel = labels[i];
+            // O input está associado via 'for' ou é o próximo input no mesmo form-group
+            var forId = labels[i].getAttribute('for');
+            if (forId) {
+                domainField = document.getElementById(forId);
             }
-        }
-    }
-
-    // 2. Esconder o campo TLD completamente (input + div pai)
-    if (tldInput) {
-        var tldContainer = tldInput.closest('.col-xs-3, .col-3, .col-sm-3, .col-md-3');
-        if (tldContainer) {
-            tldContainer.style.display = 'none';
-        } else {
-            tldInput.parentElement.style.display = 'none';
-        }
-    }
-
-    // 3. Expandir o campo SLD para ocupar o espaço do TLD
-    var sldContainer = sldInput.closest('.col-xs-5, .col-5, .col-sm-5, .col-md-5, .col-xs-6, .col-6');
-    if (sldContainer) {
-        sldContainer.className = sldContainer.className
-            .replace(/col-(xs-|sm-|md-|lg-|xl-)?[0-9]+/g, '')
-            .trim();
-        sldContainer.classList.add('col-8');
-    }
-    sldInput.setAttribute('placeholder', 'ex: nextcloud.suaempresa.com.br');
-    sldInput.style.borderRadius = '4px';
-
-    // 4. Alterar o título da secção
-    var headings = document.querySelectorAll('h2, h3, .header-lined, .sub-heading');
-    for (var k = 0; k < headings.length; k++) {
-        var txt = headings[k].textContent.toLowerCase();
-        if (txt.indexOf('dom') !== -1) {
-            headings[k].textContent = 'Informe o Domínio da Instância Nextcloud';
+            if (!domainField) {
+                var parent = labels[i].closest('.form-group, .row, .col-sm-8, .col-md-8');
+                if (parent) {
+                    domainField = parent.querySelector('input[type="text"]');
+                }
+            }
+            if (!domainField) {
+                // Tentar o próximo input após o label
+                var nextEl = labels[i].nextElementSibling;
+                while (nextEl) {
+                    if (nextEl.tagName === 'INPUT' && nextEl.type === 'text') {
+                        domainField = nextEl;
+                        break;
+                    }
+                    var innerInput = nextEl.querySelector('input[type="text"]');
+                    if (innerInput) {
+                        domainField = innerInput;
+                        break;
+                    }
+                    nextEl = nextEl.nextElementSibling;
+                }
+            }
             break;
         }
     }
 
-    // 5. Interceptar o submit para separar SLD e TLD automaticamente
-    var form = document.getElementById('frmProductDomain');
-    var submitBtn = document.getElementById('useOwnDomain');
-    if (submitBtn && tldInput) {
-        submitBtn.addEventListener('click', function(e) {
-            var fullDomain = sldInput.value.trim().toLowerCase();
-
-            // Remover www. se presente
-            if (fullDomain.indexOf('www.') === 0) {
-                fullDomain = fullDomain.substring(4);
+    if (!domainField) {
+        // Fallback: procurar por qualquer input com placeholder ou name que contenha "dominio" ou "instancia"
+        var allInputs = document.querySelectorAll('input[type="text"]');
+        for (var j = 0; j < allInputs.length; j++) {
+            var ph = (allInputs[j].placeholder || '').toLowerCase();
+            var nm = (allInputs[j].name || '').toLowerCase();
+            if (ph.indexOf('dominio') !== -1 || ph.indexOf('instancia') !== -1 || 
+                ph.indexOf('hostname') !== -1 || nm.indexOf('dominio') !== -1) {
+                domainField = allInputs[j];
+                break;
             }
-
-            // Remover protocolo se presente
-            fullDomain = fullDomain.replace(/^https?:\/\//, '');
-
-            // Remover barra final
-            fullDomain = fullDomain.replace(/\/+$/, '');
-
-            // Separar em SLD e TLD
-            // Estratégia: verificar TLDs compostos conhecidos (2 partes) primeiro,
-            // depois tentar TLDs de 1 parte. O TLD deve ser reconhecido pelo WHMCS.
-            // Ex: next-jaguar.defensys.seg.br -> SLD=next-jaguar.defensys, TLD=seg.br
-            // Ex: nextcloud.empresa.com.br -> SLD=nextcloud.empresa, TLD=com.br
-            // Ex: cloud.empresa.com -> SLD=cloud.empresa, TLD=com
-            var parts = fullDomain.split('.');
-            if (parts.length >= 3) {
-                // Lista de TLDs compostos (2 partes) reconhecidos
-                var lastTwo = parts[parts.length - 2] + '.' + parts[parts.length - 1];
-                var compositeTlds = [
-                    // Brasil
-                    'com.br','org.br','net.br','gov.br','edu.br','mil.br',
-                    'art.br','blog.br','dev.br','app.br','seg.br','inf.br',
-                    'adm.br','adv.br','agr.br','arq.br','bio.br','cim.br',
-                    'cnt.br','ecn.br','eng.br','esp.br','etc.br','eti.br',
-                    'far.br','fnd.br','fot.br','fst.br','ggf.br','imb.br',
-                    'ind.br','jor.br','lel.br','mat.br','med.br','mus.br',
-                    'not.br','ntr.br','odo.br','ppg.br','pro.br','psc.br',
-                    'rec.br','slg.br','srv.br','tmp.br','trd.br','tur.br',
-                    'tv.br','vet.br','vlog.br','wiki.br',
-                    // Internacionais comuns
-                    'co.uk','org.uk','me.uk','net.uk',
-                    'co.za','co.in','co.jp','co.kr',
-                    'com.au','net.au','org.au',
-                    'com.pt','org.pt','net.pt',
-                    'com.ar','com.mx','com.co','com.ve','com.pe','com.cl',
-                    'com.uy','com.py','com.bo','com.ec'
-                ];
-                if (compositeTlds.indexOf(lastTwo) !== -1) {
-                    sldInput.value = parts.slice(0, parts.length - 2).join('.');
-                    tldInput.value = lastTwo;
-                } else {
-                    // TLD simples (1 parte) - tudo antes da última parte é SLD
-                    sldInput.value = parts.slice(0, parts.length - 1).join('.');
-                    tldInput.value = parts[parts.length - 1];
-                }
-            } else if (parts.length === 2) {
-                sldInput.value = parts[0];
-                tldInput.value = parts[1];
-            } else {
-                sldInput.value = fullDomain;
-                tldInput.value = 'com';
-            }
-        });
+        }
     }
 
-    // 6. Adicionar instruções sobre DNS (apenas uma vez, com ID único)
-    var formContainer = sldInput.closest('.domain-selection-options') || sldInput.closest('form') || sldInput.parentElement.parentElement;
-    if (formContainer) {
-        var dnsInfo = document.createElement('div');
-        dnsInfo.id = 'nextcloud-dns-info';
-        dnsInfo.style.cssText = 'margin-top: 15px; padding: 12px 16px; background: #f0f7ff; border-left: 4px solid #0082c9; border-radius: 4px; font-size: 0.9em; line-height: 1.8;';
-        dnsInfo.innerHTML = '<strong>Importante:</strong> Antes de prosseguir, crie 3 registros DNS apontando para o IP do servidor:<br><br>' +
-            '<table style="width:100%; border-collapse:collapse; font-size:0.95em;">' +
-            '<tr style="background:#e3f2fd;">' +
+    if (!domainField) {
+        return;
+    }
+
+    // Melhorar o placeholder
+    domainField.setAttribute('placeholder', 'ex: nextcloud.suaempresa.com.br');
+
+    // Criar a secção de instruções DNS
+    var dnsInfo = document.createElement('div');
+    dnsInfo.id = 'nextcloud-dns-info';
+    dnsInfo.style.cssText = 'margin-top: 15px; margin-bottom: 15px; padding: 12px 16px; background: #f0f7ff; border-left: 4px solid #0082c9; border-radius: 4px; font-size: 0.9em; line-height: 1.8;';
+    dnsInfo.innerHTML = '<strong>Importante:</strong> Antes de prosseguir, crie 3 registros DNS apontando para o IP do servidor:<br><br>' +
+        '<table style="width:100%; border-collapse:collapse; font-size:0.95em;">' +
+        '<tr style="background:#e3f2fd;">' +
             '<th style="padding:6px 10px; text-align:left; border:1px solid #ccc;">Tipo</th>' +
             '<th style="padding:6px 10px; text-align:left; border:1px solid #ccc;">Nome (Host)</th>' +
             '<th style="padding:6px 10px; text-align:left; border:1px solid #ccc;">Valor (Destino)</th>' +
-            '</tr>' +
-            '<tr>' +
+        '</tr>' +
+        '<tr>' +
             '<td style="padding:6px 10px; border:1px solid #ccc;"><strong>A</strong></td>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>seudominio.com.br</code></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code id="dns-main">seudominio.com.br</code></td>' +
             '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
-            '</tr>' +
-            '<tr>' +
+        '</tr>' +
+        '<tr>' +
             '<td style="padding:6px 10px; border:1px solid #ccc;"><strong>A</strong></td>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>collabora-seudominio.com.br</code></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code id="dns-collabora">collabora-seudominio.com.br</code></td>' +
             '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
-            '</tr>' +
-            '<tr>' +
+        '</tr>' +
+        '<tr>' +
             '<td style="padding:6px 10px; border:1px solid #ccc;"><strong>A</strong></td>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>signaling-seudominio.com.br</code></td>' +
+            '<td style="padding:6px 10px; border:1px solid #ccc;"><code id="dns-signaling">signaling-seudominio.com.br</code></td>' +
             '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
-            '</tr>' +
-            '</table>';
-        formContainer.appendChild(dnsInfo);
+        '</tr>' +
+        '</table>' +
+        '<div id="ncDomainError" style="display: none; color: #d32f2f; margin-top: 10px; font-weight: 500;"></div>';
+
+    // Inserir após o campo de domínio
+    var fieldContainer = domainField.closest('.form-group, .row');
+    if (fieldContainer) {
+        fieldContainer.parentNode.insertBefore(dnsInfo, fieldContainer.nextSibling);
+    } else {
+        domainField.parentNode.insertBefore(dnsInfo, domainField.nextSibling);
+    }
+
+    // Atualizar DNS dinamicamente quando o utilizador digita
+    function updateDnsExamples() {
+        var domain = domainField.value.trim().toLowerCase();
+        domain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+
+        var mainEl = document.getElementById('dns-main');
+        var collabEl = document.getElementById('dns-collabora');
+        var sigEl = document.getElementById('dns-signaling');
+
+        if (domain && domain.indexOf('.') !== -1) {
+            mainEl.textContent = domain;
+            collabEl.textContent = 'collabora-' + domain;
+            sigEl.textContent = 'signaling-' + domain;
+        } else {
+            mainEl.textContent = 'seudominio.com.br';
+            collabEl.textContent = 'collabora-seudominio.com.br';
+            sigEl.textContent = 'signaling-seudominio.com.br';
+        }
+    }
+
+    domainField.addEventListener('input', updateDnsExamples);
+    domainField.addEventListener('change', updateDnsExamples);
+    domainField.addEventListener('blur', updateDnsExamples);
+
+    // Se já tem valor preenchido, atualizar
+    if (domainField.value) {
+        updateDnsExamples();
+    }
+
+    // Validação no submit do formulário
+    var form = domainField.closest('form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            var domain = domainField.value.trim().toLowerCase();
+            domain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+
+            var errorEl = document.getElementById('ncDomainError');
+
+            if (!domain) {
+                e.preventDefault();
+                errorEl.textContent = 'Por favor, informe o domínio da instância Nextcloud.';
+                errorEl.style.display = 'block';
+                domainField.focus();
+                return false;
+            }
+
+            var parts = domain.split('.');
+            if (parts.length < 2) {
+                e.preventDefault();
+                errorEl.textContent = 'O domínio deve ter pelo menos duas partes (ex: nextcloud.suaempresa.com.br).';
+                errorEl.style.display = 'block';
+                domainField.focus();
+                return false;
+            }
+
+            for (var k = 0; k < parts.length; k++) {
+                if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(parts[k])) {
+                    e.preventDefault();
+                    errorEl.textContent = 'O domínio contém caracteres inválidos. Use apenas letras, números e hífens.';
+                    errorEl.style.display = 'block';
+                    domainField.focus();
+                    return false;
+                }
+            }
+
+            // Limpar o domínio antes de enviar
+            domainField.value = domain;
+            errorEl.style.display = 'none';
+        });
     }
 });
 </script>
 HOOKHTML;
 });
 
+// =============================================================================
+// HOOKS DE CHECKOUT E PROVISIONAMENTO
+// =============================================================================
+
 /**
- * Hook: ShoppingCartValidateDomain
+ * Hook: ShoppingCartValidateCheckout
  *
- * Remove automaticamente o prefixo "www." se o cliente o incluir
- * no campo de domínio ao encomendar um produto Nextcloud.
- * Também limpa o TLD caso o cliente tenha digitado o domínio completo no SLD.
+ * Valida o Custom Field "Domínio da Instância" durante o checkout.
+ * Garante que o domínio tem formato válido antes de prosseguir.
  */
-add_hook('ShoppingCartValidateDomain', 1, function ($vars) {
+add_hook('ShoppingCartValidateCheckout', 1, function ($vars) {
 
-    // Remover www. se presente
-    if (isset($_POST['sld']) && strpos($_POST['sld'], 'www.') === 0) {
-        $_POST['sld'] = substr($_POST['sld'], 4);
+    $errors = [];
+
+    // Verificar se há custom fields com domínio
+    if (isset($_POST['customfield']) && is_array($_POST['customfield'])) {
+        foreach ($_POST['customfield'] as $fieldId => $value) {
+            $value = trim($value);
+            if (empty($value)) {
+                continue;
+            }
+
+            // Verificar se este campo é o "Domínio da Instância" de um produto nextcloudsaas
+            try {
+                if (class_exists('\\WHMCS\\Database\\Capsule')) {
+                    $field = \WHMCS\Database\Capsule::table('tblcustomfields')
+                        ->where('id', $fieldId)
+                        ->where('fieldname', 'LIKE', '%Domínio%Instância%')
+                        ->first();
+
+                    if ($field) {
+                        // Limpar o domínio
+                        $domain = strtolower($value);
+                        $domain = preg_replace('#^https?://#', '', $domain);
+                        $domain = preg_replace('#^www\.#', '', $domain);
+                        $domain = rtrim($domain, '/');
+
+                        // Validar formato
+                        $parts = explode('.', $domain);
+                        if (count($parts) < 2) {
+                            $errors[] = 'O domínio da instância deve ter pelo menos duas partes (ex: nextcloud.suaempresa.com.br).';
+                            continue;
+                        }
+
+                        foreach ($parts as $part) {
+                            if (!preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/', $part)) {
+                                $errors[] = 'O domínio da instância contém caracteres inválidos. Use apenas letras, números e hífens.';
+                                break;
+                            }
+                        }
+
+                        // Atualizar o valor limpo
+                        $_POST['customfield'][$fieldId] = $domain;
+                    }
+                }
+            } catch (\Exception $e) {
+                // Silenciar
+            }
+        }
     }
 
-    // Se o cliente digitou o domínio completo no campo SLD (ex: nextcloud.empresa.com.br)
-    // e o TLD ficou com valor padrão, limpar o TLD para não duplicar
-    if (isset($_POST['sld']) && substr_count($_POST['sld'], '.') >= 2) {
-        $_POST['tld'] = '';
-    }
+    return $errors;
+});
 
-    return [];
+/**
+ * Hook: AfterShoppingCartCheckout
+ *
+ * Após o checkout, copia o valor do Custom Field "Domínio da Instância"
+ * para o campo Domain (tblhosting.domain) do serviço.
+ * Também define o username como 'admin' automaticamente.
+ *
+ * Isto garante que $params['domain'] funciona corretamente em todas
+ * as funções do módulo (CreateAccount, ChangePassword, etc.).
+ */
+add_hook('AfterShoppingCartCheckout', 1, function ($vars) {
+    try {
+        $orderId = isset($vars['OrderID']) ? $vars['OrderID'] : '';
+        if (empty($orderId)) {
+            return;
+        }
+
+        if (!class_exists('\\WHMCS\\Database\\Capsule')) {
+            return;
+        }
+
+        // Obter os serviços associados a esta ordem
+        $orderItems = \WHMCS\Database\Capsule::table('tblhosting')
+            ->where('orderid', $orderId)
+            ->get();
+
+        foreach ($orderItems as $item) {
+            // Verificar se é um produto nextcloudsaas
+            $product = \WHMCS\Database\Capsule::table('tblproducts')
+                ->where('id', $item->packageid)
+                ->where('servertype', 'nextcloudsaas')
+                ->first();
+
+            if (!$product) {
+                continue;
+            }
+
+            // Procurar o Custom Field "Domínio da Instância"
+            $customField = \WHMCS\Database\Capsule::table('tblcustomfields')
+                ->where('relid', $product->id)
+                ->where('type', 'product')
+                ->where('fieldname', 'LIKE', '%Domínio%Instância%')
+                ->first();
+
+            if (!$customField) {
+                // Tentar sem acentos
+                $customField = \WHMCS\Database\Capsule::table('tblcustomfields')
+                    ->where('relid', $product->id)
+                    ->where('type', 'product')
+                    ->where('fieldname', 'LIKE', '%Dominio%Instancia%')
+                    ->first();
+            }
+
+            if (!$customField) {
+                logActivity("Nextcloud SaaS Hook: Custom Field 'Domínio da Instância' não encontrado para produto #{$product->id}");
+                continue;
+            }
+
+            // Obter o valor do Custom Field para este serviço
+            $fieldValue = \WHMCS\Database\Capsule::table('tblcustomfieldsvalues')
+                ->where('fieldid', $customField->id)
+                ->where('relid', $item->id)
+                ->first();
+
+            if (!$fieldValue || empty($fieldValue->value)) {
+                logActivity("Nextcloud SaaS Hook: Custom Field 'Domínio da Instância' vazio para serviço #{$item->id}");
+                continue;
+            }
+
+            $domain = strtolower(trim($fieldValue->value));
+            $domain = preg_replace('#^https?://#', '', $domain);
+            $domain = preg_replace('#^www\.#', '', $domain);
+            $domain = rtrim($domain, '/');
+
+            // Atualizar o campo domain do serviço
+            $updates = ['domain' => $domain];
+
+            // Também definir o username como 'admin' automaticamente
+            if (empty($item->username) || $item->username !== 'admin') {
+                $updates['username'] = 'admin';
+            }
+
+            \WHMCS\Database\Capsule::table('tblhosting')
+                ->where('id', $item->id)
+                ->update($updates);
+
+            logActivity(
+                "Nextcloud SaaS Hook: Domínio definido como '{$domain}' para serviço #{$item->id}\n"
+                . "  Username definido como 'admin'"
+            );
+        }
+
+    } catch (\Exception $e) {
+        logActivity("Nextcloud SaaS Hook Error (AfterShoppingCartCheckout): " . $e->getMessage());
+    }
 });
