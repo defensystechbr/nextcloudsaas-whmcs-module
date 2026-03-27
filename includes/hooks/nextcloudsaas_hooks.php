@@ -303,17 +303,39 @@ document.addEventListener('DOMContentLoaded', function() {
             fullDomain = fullDomain.replace(/\/+$/, '');
 
             // Separar em SLD e TLD
+            // Estratégia: verificar TLDs compostos conhecidos (2 partes) primeiro,
+            // depois tentar TLDs de 1 parte. O TLD deve ser reconhecido pelo WHMCS.
+            // Ex: next-jaguar.defensys.seg.br -> SLD=next-jaguar.defensys, TLD=seg.br
             // Ex: nextcloud.empresa.com.br -> SLD=nextcloud.empresa, TLD=com.br
             // Ex: cloud.empresa.com -> SLD=cloud.empresa, TLD=com
             var parts = fullDomain.split('.');
             if (parts.length >= 3) {
-                // Verificar TLDs compostos (.com.br, .org.br, .net.br, etc.)
+                // Lista de TLDs compostos (2 partes) reconhecidos
                 var lastTwo = parts[parts.length - 2] + '.' + parts[parts.length - 1];
-                var compositeTlds = ['com.br','org.br','net.br','gov.br','edu.br','mil.br','art.br','blog.br','dev.br','app.br','co.uk','org.uk','co.za'];
-                if (compositeTlds.indexOf(lastTwo) !== -1 && parts.length >= 3) {
+                var compositeTlds = [
+                    // Brasil
+                    'com.br','org.br','net.br','gov.br','edu.br','mil.br',
+                    'art.br','blog.br','dev.br','app.br','seg.br','inf.br',
+                    'adm.br','adv.br','agr.br','arq.br','bio.br','cim.br',
+                    'cnt.br','ecn.br','eng.br','esp.br','etc.br','eti.br',
+                    'far.br','fnd.br','fot.br','fst.br','ggf.br','imb.br',
+                    'ind.br','jor.br','lel.br','mat.br','med.br','mus.br',
+                    'not.br','ntr.br','odo.br','ppg.br','pro.br','psc.br',
+                    'rec.br','slg.br','srv.br','tmp.br','trd.br','tur.br',
+                    'tv.br','vet.br','vlog.br','wiki.br',
+                    // Internacionais comuns
+                    'co.uk','org.uk','me.uk','net.uk',
+                    'co.za','co.in','co.jp','co.kr',
+                    'com.au','net.au','org.au',
+                    'com.pt','org.pt','net.pt',
+                    'com.ar','com.mx','com.co','com.ve','com.pe','com.cl',
+                    'com.uy','com.py','com.bo','com.ec'
+                ];
+                if (compositeTlds.indexOf(lastTwo) !== -1) {
                     sldInput.value = parts.slice(0, parts.length - 2).join('.');
                     tldInput.value = lastTwo;
                 } else {
+                    // TLD simples (1 parte) - tudo antes da última parte é SLD
                     sldInput.value = parts.slice(0, parts.length - 1).join('.');
                     tldInput.value = parts[parts.length - 1];
                 }

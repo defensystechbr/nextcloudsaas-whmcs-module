@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.5.2
+# Módulo Nextcloud-SaaS para WHMCS v2.5.3
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.5.2  
+**Versão:** 2.5.3  
 **Licença:** Proprietária
 
 ---
@@ -201,6 +201,10 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v2.5.3 (2026-03-27):**
+    -   Corrigida validação de domínio no formulário de order: adicionado `seg.br` e todos os TLDs brasileiros à lista de TLDs compostos
+    -   Lista de TLDs compostos expandida para incluir TLDs internacionais comuns (PT, AR, MX, CO, etc.)
+    -   Domínios como `next-jaguar.defensys.seg.br` agora são corretamente separados em SLD=`next-jaguar.defensys` e TLD=`seg.br`
 -   **v2.5.2 (2026-02-14):**
     -   **Novo:** Atualização automática do ficheiro `.credentials` quando a password é alterada via ChangePassword. A password do Nextcloud no `.credentials` fica sempre sincronizada.
     -   Nova função `updateCredentialsPassword()` no SSHManager com escape correto de caracteres especiais (colchetes, barras, etc.).
