@@ -20,10 +20,13 @@
             "Atualização de instâncias via WHMCS",
             "Monitorização de uso de disco",
             "Área de cliente personalizada com informações detalhadas",
-            "Suporte a autenticação SSH por password e chave"
+            "Suporte a autenticação SSH por password e chave",
+            "Verificação automática de DNS e provisionamento por cron",
+            "Email automático ao cliente com credenciais após provisionamento",
+            "Timeout de 3 dias com notificação ao admin para DNS não configurado"
         ]
     },
-    "version": "2.5.4",
+    "version": "2.6.0",
     "authors": [
         {
             "name": "Defensys / Manus AI"

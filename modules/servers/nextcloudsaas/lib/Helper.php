@@ -355,6 +355,71 @@ class Helper
     }
 
     /**
+     * Verificar se os 3 registros DNS de uma instância estão configurados corretamente.
+     *
+     * Verifica se os domínios principal, collabora e signaling resolvem para o IP do servidor.
+     *
+     * @param string $domain   Domínio principal da instância
+     * @param string $serverIp IP esperado do servidor
+     * @return array ['success' => bool, 'results' => [...], 'all_ok' => bool, 'message' => string]
+     */
+    public static function checkDnsRecords($domain, $serverIp)
+    {
+        $domains = self::getRequiredDomains($domain);
+        $results = [];
+        $allOk = true;
+        $messages = [];
+
+        foreach ($domains as $type => $hostname) {
+            $resolved = @dns_get_record($hostname, DNS_A);
+            $ips = [];
+
+            if ($resolved && is_array($resolved)) {
+                foreach ($resolved as $record) {
+                    if (isset($record['ip'])) {
+                        $ips[] = $record['ip'];
+                    }
+                }
+            }
+
+            // Fallback: tentar gethostbyname se dns_get_record falhar
+            if (empty($ips)) {
+                $ip = @gethostbyname($hostname);
+                if ($ip !== $hostname) {
+                    $ips[] = $ip;
+                }
+            }
+
+            $isCorrect = in_array($serverIp, $ips);
+
+            $results[$type] = [
+                'hostname'  => $hostname,
+                'expected'  => $serverIp,
+                'resolved'  => $ips,
+                'correct'   => $isCorrect,
+            ];
+
+            if (!$isCorrect) {
+                $allOk = false;
+                if (empty($ips)) {
+                    $messages[] = "{$hostname}: sem registro DNS";
+                } else {
+                    $messages[] = "{$hostname}: aponta para " . implode(', ', $ips) . " (esperado: {$serverIp})";
+                }
+            }
+        }
+
+        return [
+            'success' => true,
+            'results' => $results,
+            'all_ok'  => $allOk,
+            'message' => $allOk
+                ? 'Todos os 3 registros DNS estão corretos.'
+                : 'DNS incompleto: ' . implode(' | ', $messages),
+        ];
+    }
+
+    /**
      * Obter os nomes dos 10 containers de uma instância
      *
      * @param string $clientName Nome do cliente

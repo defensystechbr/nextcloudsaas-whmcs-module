@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.5.4
+# Módulo Nextcloud-SaaS para WHMCS v2.6.0
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.5.4  
+**Versão:** 2.6.0  
 **Licença:** Proprietária
 
 ---
@@ -31,13 +31,15 @@ Cada instância provisionada pelo módulo consiste em 10 containers Docker inter
 
 ### 1.2. Requisitos de DNS
 
-Para que uma instância funcione corretamente, **três (3) registros DNS do tipo A** devem ser criados e apontados para o endereço IP do servidor de hospedagem **antes** da criação do serviço no WHMCS:
+Para que uma instância funcione corretamente, **três (3) registros DNS do tipo A** devem ser criados e apontados para o endereço IP do servidor de hospedagem:
 
 1.  `dominio.com.br` (para o Nextcloud)
 2.  `collabora-dominio.com.br` (para o Collabora Online)
 3.  `signaling-dominio.com.br` (para o Nextcloud Talk HPB)
 
 O Traefik irá detetar automaticamente estes domínios e provisionar os certificados SSL correspondentes.
+
+> **Novidade v2.6.0 — Provisionamento Automático:** O cliente já não precisa de configurar os DNS antes da compra. Após o checkout, o sistema verifica automaticamente os registros DNS a cada 5 minutos. Quando todos os 3 registros estiverem corretos, a instância é criada automaticamente e o cliente recebe um email com as credenciais. Se após 3 dias o DNS não estiver configurado, o admin é notificado.
 
 ---
 
@@ -160,7 +162,7 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 
 ### 3.1. Ciclo de Vida do Serviço
 
--   **CreateAccount:** Executa `manage.sh <cliente> <dominio> create`. Cria a instância completa, lê o ficheiro `.credentials` gerado, guarda a password do admin no WHMCS, e define a quota padrão para todos os utilizadores.
+-   **CreateAccount:** Verifica primeiro se os 3 registros DNS estão corretos (apontando para o IP do servidor configurado no WHMCS). Se OK, executa `manage.sh <cliente> <dominio> create`. Cria a instância completa, lê o ficheiro `.credentials` gerado, guarda a password do admin no WHMCS, e define a quota padrão para todos os utilizadores. Se DNS não está OK, retorna mensagem informativa e o cron automático continuará verificando.
 -   **SuspendAccount:** Executa `manage.sh <cliente> _ stop`. Para todos os 10 containers da instância.
 -   **UnsuspendAccount:** Executa `manage.sh <cliente> _ start`. Inicia todos os 10 containers da instância.
 -   **TerminateAccount:** Executa `manage.sh <cliente> _ backup` e depois `manage.sh <cliente> _ remove`. Faz um backup completo antes de apagar permanentemente a instância (containers, volumes e dados).
@@ -173,6 +175,7 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 Na área de administração do WHMCS, na página do serviço do cliente, estão disponíveis os seguintes botões:
 
 -   **Verificar Estado:** Mostra o estado de cada um dos 10 containers.
+-   **Verificar DNS:** Verifica se os 3 registros DNS (principal, collabora, signaling) apontam para o IP do servidor configurado no WHMCS. Exibe tabela detalhada com status de cada registro.
 -   **Reiniciar Instância:** Executa `stop` e `start` (o manage.sh não tem comando restart).
 -   **Fazer Backup:** Executa o comando de backup do `manage.sh`.
 -   **Atualizar Instância:** Executa o comando de atualização do `manage.sh` (pull + upgrade).
@@ -201,6 +204,17 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v2.6.0 (2026-03-27):**
+    -   **Novo: Provisionamento automático via verificação DNS por cron.** O sistema verifica automaticamente os registros DNS de serviços pendentes a cada execução do cron WHMCS (recomendado: 5 minutos). Quando os 3 registros DNS estão corretos, a instância é criada automaticamente via `localAPI('ModuleCreate')`.
+    -   **Novo: Email automático ao cliente** com credenciais de acesso (URL, usuário, senha) quando a instância é provisionada automaticamente. Email em HTML profissional com todas as informações de serviço.
+    -   **Novo: Timeout de 3 dias** para verificação DNS. Se o cliente não configurar os registros em 3 dias, o sistema para de verificar e envia notificação ao administrador com detalhes do serviço e registros DNS necessários.
+    -   **Novo: Botão "Verificar DNS" no admin** que mostra tabela detalhada com status de cada registro DNS (hostname, IP esperado, IP resolvido, status OK/FALHA).
+    -   **Novo: Funções DNS no Helper.php** — `checkDnsRecords()`, `getRequiredDomains()`, `getServerConfig()` para verificação programática de registros DNS.
+    -   **Melhoria: IP do servidor dinâmico** — O IP é sempre obtido do Server configurado no WHMCS (`tblservers`), nunca hardcoded. Funciona corretamente em ambientes multi-servidor.
+    -   **Melhoria: Validação DNS no CreateAccount** — Antes de provisionar, verifica se o DNS está correto. Se não estiver, retorna mensagem informativa e o cron continuará verificando.
+    -   **Melhoria: ClientArea atualizado** com tabela DNS formatada e mensagem de "Aguardando configuração DNS" para serviços pendentes.
+    -   **Melhoria: Hook AfterShoppingCartCheckout** agora grava timestamp de início da verificação DNS nas notas do serviço para controle de timeout.
+    -   **Melhoria: Instruções DNS no carrinho** atualizadas com mensagem sobre provisionamento automático.
 -   **v2.5.4 (2026-03-27):**
     -   **Correção definitiva do formulário de domínio:** Removida a dependência do formulário SLD/TLD do WHMCS (que rejeitava subdomínios como `next-jaguar.defensys.seg.br`). Agora utiliza um Custom Field "Domínio da Instância" para capturar o hostname completo sem restrições.
     -   **Novo hook `AfterShoppingCartCheckout`:** Copia automaticamente o valor do Custom Field para o campo Domain do serviço, garantindo que `$params['domain']` funciona corretamente em todas as funções do módulo.
@@ -257,7 +271,7 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 -   `lib/Helper.php`: Funções utilitárias para formatação, validação e extração de configurações.
 -   `lib/NextcloudAPI.php`: Cliente para a API OCS do Nextcloud, usado para testes de conectividade e alteração de passwords.
 -   `templates/clientarea.tpl`: Template Smarty para a área de cliente, com um design moderno e informativo.
--   `hooks.php`: Adiciona logs de atividade detalhados para cada ação do ciclo de vida.
--   `includes/hooks/nextcloudsaas_hooks.php`: Hook de personalização do carrinho de compras (domínio e DNS).
+-   `hooks.php`: Referência para o ficheiro principal de hooks.
+-   `includes/hooks/nextcloudsaas_hooks.php`: Hooks completos do módulo — ciclo de vida, personalização do carrinho, verificação DNS por cron, provisionamento automático, emails e notificações.
 -   `whmcs.json`: Metadados do módulo.
 -   `vendor/`: Contém a biblioteca `phpseclib3`.

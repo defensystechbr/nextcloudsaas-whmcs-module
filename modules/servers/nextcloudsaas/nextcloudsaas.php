@@ -17,7 +17,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.5.4
+ * @version    2.6.0
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -244,6 +244,19 @@ function nextcloudsaas_CreateAccount(array $params)
         // Validar domínio
         if (empty($domain) || !Helper::isValidDomain($domain)) {
             return "Domínio inválido ou não fornecido: {$domain}";
+        }
+
+        // Verificar DNS antes de provisionar
+        $serverConfig = Helper::getServerConfig($params);
+        $serverIp = !empty($serverConfig['ip']) ? $serverConfig['ip'] : $serverConfig['hostname'];
+
+        if (!empty($serverIp) && $serverIp !== '0.0.0.0') {
+            $dnsCheck = Helper::checkDnsRecords($domain, $serverIp);
+            if (!$dnsCheck['all_ok']) {
+                return "DNS não configurado corretamente. {$dnsCheck['message']}\n"
+                     . "Os 3 registros DNS devem apontar para {$serverIp}.\n"
+                     . "O sistema verificará automaticamente a cada 5 minutos e provisionará quando o DNS estiver correto.";
+            }
         }
 
         // Derivar nome do cliente para o manage.sh
@@ -789,6 +802,7 @@ function nextcloudsaas_AdminCustomButtonArray()
 {
     return [
         'Verificar Estado'       => 'checkStatus',
+        'Verificar DNS'          => 'checkDns',
         'Reiniciar Instância'    => 'restartInstance',
         'Fazer Backup'           => 'backupInstance',
         'Atualizar Instância'    => 'updateInstance',
@@ -850,6 +864,86 @@ function nextcloudsaas_checkStatus(array $params)
 
     } catch (\Exception $e) {
         return 'Exceção ao verificar estado: ' . $e->getMessage();
+    }
+
+    return 'success';
+}
+
+/**
+ * Verificar o estado dos registros DNS da instância.
+ *
+ * Verifica se os 3 registros DNS (principal, collabora, signaling)
+ * apontam para o IP do servidor configurado no WHMCS.
+ *
+ * @param array $params Parâmetros comuns do módulo
+ * @return string "success" ou mensagem de erro
+ */
+function nextcloudsaas_checkDns(array $params)
+{
+    try {
+        $domain = isset($params['domain']) ? $params['domain'] : '';
+
+        if (empty($domain)) {
+            return 'Domínio não encontrado para este serviço.';
+        }
+
+        // Obter IP do servidor configurado no WHMCS
+        $serverConfig = Helper::getServerConfig($params);
+        $serverIp = !empty($serverConfig['ip']) ? $serverConfig['ip'] : $serverConfig['hostname'];
+
+        if (empty($serverIp) || $serverIp === '0.0.0.0') {
+            return 'IP do servidor não configurado. Verifique as configurações do servidor no WHMCS.';
+        }
+
+        $dnsCheck = Helper::checkDnsRecords($domain, $serverIp);
+
+        Helper::log('checkDns', ['domain' => $domain, 'serverIp' => $serverIp], $dnsCheck);
+
+        // Construir HTML do resultado
+        $domains = Helper::getRequiredDomains($domain);
+        $html = '<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0;">';
+        $html .= '<tr style="background:#f5f5f5;">';
+        $html .= '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Tipo</th>';
+        $html .= '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Hostname</th>';
+        $html .= '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Esperado</th>';
+        $html .= '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Resolvido</th>';
+        $html .= '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Status</th>';
+        $html .= '</tr>';
+
+        foreach ($dnsCheck['results'] as $type => $result) {
+            $resolvedIps = !empty($result['resolved']) ? implode(', ', $result['resolved']) : '(sem registro)';
+            $statusIcon = $result['correct']
+                ? '<span style="color:green;font-weight:bold;">OK</span>'
+                : '<span style="color:red;font-weight:bold;">FALHA</span>';
+
+            $html .= '<tr>';
+            $html .= '<td style="padding:6px 10px;border:1px solid #ddd;">' . ucfirst($type) . '</td>';
+            $html .= '<td style="padding:6px 10px;border:1px solid #ddd;"><code>' . htmlspecialchars($result['hostname']) . '</code></td>';
+            $html .= '<td style="padding:6px 10px;border:1px solid #ddd;"><code>' . htmlspecialchars($serverIp) . '</code></td>';
+            $html .= '<td style="padding:6px 10px;border:1px solid #ddd;"><code>' . htmlspecialchars($resolvedIps) . '</code></td>';
+            $html .= '<td style="padding:6px 10px;border:1px solid #ddd;">' . $statusIcon . '</td>';
+            $html .= '</tr>';
+        }
+        $html .= '</table>';
+
+        $overallStatus = $dnsCheck['all_ok']
+            ? '<span style="background:#27ae60;color:#fff;padding:3px 10px;border-radius:3px;font-size:12px;">TODOS OS DNS CORRETOS</span>'
+            : '<span style="background:#e74c3c;color:#fff;padding:3px 10px;border-radius:3px;font-size:12px;">DNS INCOMPLETO</span>';
+
+        // Gravar na sessão para exibir no AdminServicesTabFields
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        $_SESSION['nextcloudsaas_panel'] = [
+            'type'      => 'status',
+            'title'     => 'Verificação DNS: ' . $domain . ' (IP do Servidor: ' . $serverIp . ')',
+            'content'   => $overallStatus . $html,
+            'serviceid' => $params['serviceid'],
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
+
+    } catch (\Exception $e) {
+        return 'Exceção ao verificar DNS: ' . $e->getMessage();
     }
 
     return 'success';

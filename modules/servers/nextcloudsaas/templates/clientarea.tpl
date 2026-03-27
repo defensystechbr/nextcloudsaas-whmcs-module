@@ -305,10 +305,41 @@
         {* ================================================================ *}
         <div class="nc-dns-notice">
             <strong>&#128204; Registros DNS Necessarios (3 dominios)</strong>
-            Para o correto funcionamento, os seguintes registros DNS tipo <strong>A</strong> devem apontar para <code>{$serverIp}</code>:
-            <br><code>{$domain}</code> &rarr; <code>{$serverIp}</code> &mdash; Nextcloud
-            <br><code>{$collaboraDomain}</code> &rarr; <code>{$serverIp}</code> &mdash; Collabora Online
-            <br><code>{$signalingDomain}</code> &rarr; <code>{$serverIp}</code> &mdash; Signaling HPB
+            Para o correto funcionamento, os seguintes registros DNS tipo <strong>A</strong> devem apontar para o IP do servidor: <code>{$serverIp}</code>
+            <table style="width:100%; border-collapse:collapse; margin-top:10px; font-size:13px;">
+                <tr style="background:rgba(0,0,0,0.05);">
+                    <th style="padding:6px 10px; text-align:left; border:1px solid rgba(0,0,0,0.1);">Tipo</th>
+                    <th style="padding:6px 10px; text-align:left; border:1px solid rgba(0,0,0,0.1);">Host</th>
+                    <th style="padding:6px 10px; text-align:left; border:1px solid rgba(0,0,0,0.1);">Valor</th>
+                    <th style="padding:6px 10px; text-align:left; border:1px solid rgba(0,0,0,0.1);">Servico</th>
+                </tr>
+                <tr>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><strong>A</strong></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$domain}</code></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$serverIp}</code></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);">Nextcloud</td>
+                </tr>
+                <tr>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><strong>A</strong></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$collaboraDomain}</code></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$serverIp}</code></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);">Collabora Online</td>
+                </tr>
+                <tr>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><strong>A</strong></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$signalingDomain}</code></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$serverIp}</code></td>
+                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);">Signaling HPB</td>
+                </tr>
+            </table>
+            {if $instanceStatus == 'Desconhecido' || $instanceStatus == ''}
+            <div style="margin-top:12px; padding:10px; background:rgba(255,193,7,0.15); border:1px solid rgba(255,193,7,0.3); border-radius:6px;">
+                <strong>&#9888; Aguardando configuracao DNS</strong><br>
+                O sistema verifica automaticamente os registros DNS a cada 5 minutos.
+                Quando todos os 3 registros estiverem corretos, sua instancia sera criada automaticamente
+                e voce recebera um email com as credenciais de acesso.
+            </div>
+            {/if}
         </div>
 
         {* ================================================================ *}
