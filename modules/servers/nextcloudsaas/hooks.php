@@ -13,7 +13,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.6.0
+ * @version    2.6.1
  */
 
 if (!defined("WHMCS")) {

@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.6.0
+# Módulo Nextcloud-SaaS para WHMCS v2.6.1
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.6.0  
+**Versão:** 2.6.1  
 **Licença:** Proprietária
 
 ---
@@ -204,7 +204,13 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
--   **v2.6.0 (2026-03-27):**
+-   **v2.6.1 (2026-04-07):**
+    -   **Correção crítica: Fatal Error por redeclaração de funções.** O WHMCS carregava ambos `includes/hooks/nextcloudsaas_hooks.php` e `modules/servers/nextcloudsaas/hooks.php`, causando `Cannot redeclare nextcloudsaas_cronProcessPendingService()`. O `hooks.php` do módulo agora é apenas um ficheiro de referência que evita duplicação.
+    -   **Correção: Hook alterado de `DailyCronJob` para `AfterCronJob`.** O `DailyCronJob` executava apenas 1x por dia. O `AfterCronJob` executa a cada execução do cron WHMCS (recomendado: 5 minutos), garantindo verificação DNS frequente.
+    -   **Correção: Status do serviço muda automaticamente de Pending para Active** após provisionamento bem-sucedido via cron. O `localAPI('ModuleCreate')` não altera o status automaticamente; agora o hook faz isso explicitamente via `Capsule::table('tblhosting')->update()`.
+    -   **Correção: HTML escapado no botão "Verificar DNS".** O painel usava o tipo `status` que passava o conteúdo por `htmlspecialchars()`. Adicionado tipo `dns` com renderização HTML direta.
+    -   **Correção: Estrutura do ZIP de release.** O ZIP agora não contém prefixo de pasta — basta descompactar na raiz do WHMCS para instalar.
+-   **v2.6.0 (2026-04-07):**
     -   **Novo: Provisionamento automático via verificação DNS por cron.** O sistema verifica automaticamente os registros DNS de serviços pendentes a cada execução do cron WHMCS (recomendado: 5 minutos). Quando os 3 registros DNS estão corretos, a instância é criada automaticamente via `localAPI('ModuleCreate')`.
     -   **Novo: Email automático ao cliente** com credenciais de acesso (URL, usuário, senha) quando a instância é provisionada automaticamente. Email em HTML profissional com todas as informações de serviço.
     -   **Novo: Timeout de 3 dias** para verificação DNS. Se o cliente não configurar os registros em 3 dias, o sistema para de verificar e envia notificação ao administrador com detalhes do serviço e registros DNS necessários.

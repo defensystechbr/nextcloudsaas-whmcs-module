@@ -6,6 +6,11 @@
  * executar ações adicionais durante o ciclo de vida do produto.
  * Integrado com o manage.sh v10.0 e a arquitetura de 10 containers.
  *
+ * v2.6.1:
+ *   - Corrigido: Hook alterado de DailyCronJob para AfterCronJob (executa a cada 5min)
+ *   - Corrigido: Fatal Error por redeclaração de funções (hooks duplicados)
+ *   - Corrigido: Status do serviço muda automaticamente de Pending para Active
+ *
  * v2.6.0:
  *   - Adicionado hook AfterCronJob para verificação automática de DNS
  *     e provisionamento automático de instâncias pendentes.
@@ -16,7 +21,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.6.0
+ * @version    2.6.1
  */
 
 if (!defined("WHMCS")) {
