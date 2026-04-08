@@ -760,6 +760,13 @@ function nextcloudsaas_cronProcessPendingService($service)
             . "  Instância criada com sucesso via provisionamento automático."
         );
 
+        // Alterar status do serviço de Pending para Active
+        \WHMCS\Database\Capsule::table('tblhosting')
+            ->where('id', $serviceId)
+            ->update(['domainstatus' => 'Active']);
+
+        logActivity("Nextcloud SaaS Cron: Status do Serviço #{$serviceId} alterado para Active.");
+
         // Marcar nas notas que foi provisionado automaticamente
         $updatedNotes = $notes . "\n[NextcloudSaaS] auto_provisioned=" . date('Y-m-d H:i:s');
         \WHMCS\Database\Capsule::table('tblhosting')
