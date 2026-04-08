@@ -7,7 +7,7 @@
  * Integrado com o manage.sh v10.0 e a arquitetura de 10 containers.
  *
  * v2.6.0:
- *   - Adicionado hook DailyCronJob para verificação automática de DNS
+ *   - Adicionado hook AfterCronJob para verificação automática de DNS
  *     e provisionamento automático de instâncias pendentes.
  *   - IP do servidor obtido dinamicamente do Server configurado no WHMCS.
  *   - Timeout de 3 dias sem DNS: para verificação e notifica admin.
@@ -599,10 +599,10 @@ add_hook('AfterShoppingCartCheckout', 1, function ($vars) {
 // =============================================================================
 
 /**
- * Hook: DailyCronJob
+ * Hook: AfterCronJob
  *
- * NOTA: Apesar do nome "DailyCronJob", este hook é executado a cada vez que
- * o cron do WHMCS roda. Se o cron estiver configurado para rodar a cada 5 minutos
+ * Este hook é executado a cada vez que o cron do WHMCS roda.
+ * Se o cron estiver configurado para rodar a cada 5 minutos
  * (recomendado), este hook executará a cada 5 minutos.
  *
  * Fluxo:
@@ -614,7 +614,7 @@ add_hook('AfterShoppingCartCheckout', 1, function ($vars) {
  *
  * v2.6.0: Implementação inicial
  */
-add_hook('DailyCronJob', 1, function ($vars) {
+add_hook('AfterCronJob', 1, function ($vars) {
     try {
         if (!class_exists('\\WHMCS\\Database\\Capsule')) {
             return;
@@ -653,7 +653,7 @@ add_hook('DailyCronJob', 1, function ($vars) {
         }
 
     } catch (\Exception $e) {
-        logActivity("Nextcloud SaaS Cron Error (DailyCronJob): " . $e->getMessage());
+        logActivity("Nextcloud SaaS Cron Error (AfterCronJob): " . $e->getMessage());
     }
 });
 
