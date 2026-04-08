@@ -935,7 +935,7 @@ function nextcloudsaas_checkDns(array $params)
             @session_start();
         }
         $_SESSION['nextcloudsaas_panel'] = [
-            'type'      => 'status',
+            'type'      => 'dns',
             'title'     => 'Verificação DNS: ' . $domain . ' (IP do Servidor: ' . $serverIp . ')',
             'content'   => $overallStatus . $html,
             'serviceid' => $params['serviceid'],
@@ -1382,6 +1382,11 @@ function nextcloudsaas_renderSessionPanel($serviceId)
             . '<pre style="background:#f8f9fa;padding:10px;border-radius:4px;font-size:11px;'
             . 'line-height:1.4;max-height:300px;overflow:auto;white-space:pre-wrap;word-wrap:break-word;">'
             . htmlspecialchars($content, ENT_QUOTES, 'UTF-8') . '</pre>';
+    } elseif ($type === 'dns') {
+        // Conteúdo DNS já é HTML formatado (tabela)
+        $bodyHtml = $panel['content'];
+        $borderColor = '#3498db';
+        $headerBg = '#3498db';
     } else {
         return null;
     }
