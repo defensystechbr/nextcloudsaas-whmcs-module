@@ -24,10 +24,14 @@
             "Área de cliente personalizada com credenciais, DNS, componentes e ações",
             "Suporte a autenticação SSH por password e chave",
             "Email automático ao cliente com credenciais após provisionamento",
-            "Timeout configurável de 3 dias com notificação ao admin se DNS não for configurado"
+            "Timeout configurável de 3 dias com notificação ao admin se DNS não for configurado",
+            "v3.1.0 — Botão admin 'Listar Instâncias do Servidor' (dashboard de todas as instâncias)",
+            "v3.1.0 — Botão admin 'Ver Logs Talk Recording' (docker logs shared-recording)",
+            "v3.1.0 — CI/CD GitHub Actions (lint PHP em PR; release automático no push de tag vX.Y.Z)",
+            "v3.1.0 — Suite PHPUnit inicial validando contrato Helper (1 DNS, 3 containers, 8 shared-services)"
         ]
     },
-    "version": "3.0.0",
+    "version": "3.1.0",
     "authors": [
         {
             "name": "Defensys / Manus AI"

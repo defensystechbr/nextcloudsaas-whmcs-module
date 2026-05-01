@@ -275,6 +275,8 @@ Este comando é essencial para diagnosticar problemas na aplicação, tais como:
 | **Change Password** | Ciclo de Vida | API OCS / `occ` | Altera password do admin |
 | **Verificar Estado** | Gestão | `status` | Estado dos 3 containers dedicados + occ status |
 | **Serviços Compartilhados** | Gestão | n/a (docker ps) | Estado dos 8 serviços globais `shared-*` |
+| **Listar Instâncias do Servidor** (v3.1.0) | Gestão | `ls /opt/nextcloud-customers` + `docker ps` + `du -sh` | Dashboard HTML consolidado com todas as instâncias e uso de disco |
+| **Ver Logs Talk Recording** (v3.1.0) | Diagnóstico | `docker logs --tail 100 shared-recording` | Logs do serviço global de gravação de chamadas Talk |
 | **Reiniciar Instância** | Gestão | `stop` + `start` | Para e reinicia todos os containers |
 | **Fazer Backup** | Gestão | `backup` | mysqldump + tar.gz de toda a instância |
 | **Atualizar Instância** | Gestão | `update` | Backup + pull + upgrade + reindex |
