@@ -4,7 +4,20 @@
  *
  * Define hooks que se integram com eventos do WHMCS para
  * executar ações adicionais durante o ciclo de vida do produto.
- * Integrado com o manage.sh v10.0 e a arquitetura de 10 containers.
+ * Integrado com o Nextcloud SaaS Manager v11.x (`manage.sh` v11.3+),
+ * que utiliza arquitetura compartilhada: 3 containers por cliente
+ * (`app`, `cron`, `harp`) + 8 serviços globais `shared-*`. O cliente
+ * passa a precisar de apenas **1 (um) registro DNS A** apontando para
+ * o IP do servidor.
+ *
+ * v3.0.0:
+ *   - Alinhamento com a nova arquitetura compartilhada do manager v11.x.
+ *   - Carrinho/checkout, validação DNS, e-mails ao cliente e ao admin
+ *     passam a tratar APENAS o domínio principal do Nextcloud.
+ *   - `ClientAreaPageProductDetails` retorna 1 registro DNS (não mais 3).
+ *   - Logs de `AfterModuleCreate` mencionam a arquitetura de 3 containers
+ *     + 8 serviços compartilhados.
+ *   - Documentação atualizada nos comentários e mensagens.
  *
  * v2.6.1:
  *   - Corrigido: Hook alterado de DailyCronJob para AfterCronJob (executa a cada 5min)
@@ -21,7 +34,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.6.1
+ * @version    3.0.0
  */
 
 if (!defined("WHMCS")) {
@@ -50,15 +63,16 @@ add_hook('AfterModuleCreate', 1, function ($vars) {
             return;
         }
 
-        $collaboraDomain = 'collabora-' . $domain;
-        $signalingDomain = 'signaling-' . $domain;
-
+        // v3.0.0 — arquitetura compartilhada: 3 containers por cliente
+        // (`<cliente>-app`, `<cliente>-cron`, `<cliente>-harp`) + 8
+        // serviços globais `shared-*`. Apenas o domínio principal do
+        // cliente é publicado via Traefik.
         logActivity(
             "Nextcloud SaaS: Instância criada com sucesso (Serviço #{$serviceId})\n"
             . "  Domínio: {$domain}\n"
-            . "  Collabora: {$collaboraDomain}\n"
-            . "  Signaling: {$signalingDomain}\n"
-            . "  Containers: 10 (app, db, redis, collabora, turn, cron, harp, nats, janus, signaling)"
+            . "  Containers do cliente: 3 (app, cron, harp)\n"
+            . "  Serviços globais utilizados: shared-db, shared-redis, shared-collabora,\n"
+            . "  shared-turn, shared-nats, shared-janus, shared-signaling, shared-recording"
         );
 
     } catch (\Exception $e) {
@@ -126,11 +140,13 @@ add_hook('ClientAreaPageProductDetails', 1, function ($vars) {
         if (isset($vars['modulename']) && $vars['modulename'] === 'nextcloudsaas') {
             $domain = isset($vars['domain']) ? $vars['domain'] : '';
             if (!empty($domain)) {
+                // v3.0.0 — arquitetura compartilhada: apenas 1 registro
+                // A por cliente. Collabora/Signaling/TURN agora rodam em
+                // hostnames globais geridos pela Defensys e não exigem
+                // configuração DNS por parte do cliente.
                 return [
                     'dns_records' => [
                         $domain,
-                        'collabora-' . $domain,
-                        'signaling-' . $domain,
                     ],
                 ];
             }
@@ -315,7 +331,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var dnsInfo = document.createElement('div');
     dnsInfo.id = 'nextcloud-dns-info';
     dnsInfo.style.cssText = 'margin-top: 15px; margin-bottom: 15px; padding: 12px 16px; background: #f0f7ff; border-left: 4px solid #0082c9; border-radius: 4px; font-size: 0.9em; line-height: 1.8;';
-    dnsInfo.innerHTML = '<strong>Importante:</strong> Antes de prosseguir, crie 3 registros DNS apontando para o IP do servidor:<br><br>' +
+    dnsInfo.innerHTML = '<strong>Importante:</strong> Antes de prosseguir, crie <strong>1 (um)</strong> registro DNS do tipo A apontando para o IP do servidor:<br><br>' +
         '<table style="width:100%; border-collapse:collapse; font-size:0.95em;">' +
         '<tr style="background:#e3f2fd;">' +
             '<th style="padding:6px 10px; text-align:left; border:1px solid #ccc;">Tipo</th>' +
@@ -327,19 +343,10 @@ document.addEventListener('DOMContentLoaded', function() {
             '<td style="padding:6px 10px; border:1px solid #ccc;"><code id="dns-main">seudominio.com.br</code></td>' +
             '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
         '</tr>' +
-        '<tr>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><strong>A</strong></td>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><code id="dns-collabora">collabora-seudominio.com.br</code></td>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
-        '</tr>' +
-        '<tr>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><strong>A</strong></td>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><code id="dns-signaling">signaling-seudominio.com.br</code></td>' +
-            '<td style="padding:6px 10px; border:1px solid #ccc;"><code>' + serverIp + '</code></td>' +
-        '</tr>' +
         '</table>' +
-        '<br><em>Ap\u00f3s a compra, o sistema verificar\u00e1 automaticamente os registros DNS a cada 5 minutos. ' +
-        'Quando todos estiverem corretos, sua inst\u00e2ncia ser\u00e1 criada automaticamente e voc\u00ea receber\u00e1 um email com as credenciais de acesso.</em>' +
+        '<br><em>Ap\u00f3s a compra, o sistema verificar\u00e1 automaticamente o registro DNS a cada 5 minutos. ' +
+        'Quando estiver correto, sua inst\u00e2ncia ser\u00e1 criada automaticamente e voc\u00ea receber\u00e1 um e-mail com as credenciais de acesso. ' +
+        'Os servi\u00e7os auxiliares (Collabora Online, Talk HPB e TURN) j\u00e1 est\u00e3o publicados em dom\u00ednios globais da Defensys e n\u00e3o exigem nenhuma configura\u00e7\u00e3o DNS de sua parte.</em>' +
         '<div id="ncDomainError" style="display: none; color: #d32f2f; margin-top: 10px; font-weight: 500;"></div>';
 
     // Inserir após o campo de domínio
@@ -356,17 +363,11 @@ document.addEventListener('DOMContentLoaded', function() {
         domain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
 
         var mainEl = document.getElementById('dns-main');
-        var collabEl = document.getElementById('dns-collabora');
-        var sigEl = document.getElementById('dns-signaling');
 
         if (domain && domain.indexOf('.') !== -1) {
             mainEl.textContent = domain;
-            collabEl.textContent = 'collabora-' + domain;
-            sigEl.textContent = 'signaling-' + domain;
         } else {
             mainEl.textContent = 'seudominio.com.br';
-            collabEl.textContent = 'collabora-seudominio.com.br';
-            sigEl.textContent = 'signaling-seudominio.com.br';
         }
     }
 
@@ -713,11 +714,9 @@ function nextcloudsaas_cronProcessPendingService($service)
 
         logActivity(
             "Nextcloud SaaS Cron: TIMEOUT DNS - Serviço #{$serviceId} ({$domain})\n"
-            . "  O cliente não configurou os registros DNS em 3 dias.\n"
-            . "  Registros esperados apontando para {$serverIp}:\n"
+            . "  O cliente não configurou o registro DNS em 3 dias.\n"
+            . "  Registro esperado apontando para {$serverIp}:\n"
             . "    - {$domain}\n"
-            . "    - collabora-{$domain}\n"
-            . "    - signaling-{$domain}\n"
             . "  Verificação automática ENCERRADA. Ação manual necessária."
         );
 
@@ -750,7 +749,7 @@ function nextcloudsaas_cronProcessPendingService($service)
     // ── 4. DNS OK! Provisionar a instância automaticamente ──────────────
     logActivity(
         "Nextcloud SaaS Cron: DNS CONFIRMADO - Serviço #{$serviceId} ({$domain})\n"
-        . "  Todos os 3 registros DNS apontam para {$serverIp}.\n"
+        . "  O registro DNS aponta corretamente para {$serverIp}.\n"
         . "  Iniciando provisionamento automático..."
     );
 
@@ -876,8 +875,12 @@ function nextcloudsaas_sendProvisioningEmail($serviceId, $domain, $clientId, $se
             $password = '(consulte o painel WHMCS)';
         }
 
-        $collaboraDomain = 'collabora-' . $domain;
-        $signalingDomain = 'signaling-' . $domain;
+        // v3.0.0 — arquitetura compartilhada: hostnames globais lidos do
+        // Helper para evitar texto hard-coded e permitir override via
+        // configoptions do produto.
+        $sharedHosts     = \NextcloudSaaS\Helper::getSharedHostnames([]);
+        $collaboraDomain = $sharedHosts['collabora'];
+        $signalingDomain = $sharedHosts['signaling'];
 
         // Obter dados do cliente
         $client = \WHMCS\Database\Capsule::table('tblclients')
@@ -1009,11 +1012,11 @@ function nextcloudsaas_buildProvisioningEmailHtml($clientName, $domain, $usernam
         </div>
 
         <div style="background: #e8f5e9; border: 1px solid #4caf50; border-radius: 6px; padding: 12px; margin: 15px 0;">
-            <strong>Registros DNS configurados:</strong><br>
-            Os seguintes registros DNS estão apontando corretamente para o servidor (<code>' . $e($serverIp) . '</code>):<br>
-            <code>' . $e($domain) . '</code><br>
-            <code>' . $e($collaboraDomain) . '</code><br>
-            <code>' . $e($signalingDomain) . '</code>
+            <strong>Registro DNS configurado:</strong><br>
+            O seguinte registro DNS está apontando corretamente para o servidor (<code>' . $e($serverIp) . '</code>):<br>
+            <code>' . $e($domain) . '</code>
+            <br><br>
+            <small><em>Os serviços auxiliares <strong>Collabora Online</strong> (<code>' . $e($collaboraDomain) . '</code>) e <strong>Talk HPB</strong> (<code>' . $e($signalingDomain) . '</code>) estão publicados em domínios globais da Defensys e não exigem configuração DNS de sua parte.</em></small>
         </div>
 
         <p style="color: #666; font-size: 0.9em; margin-top: 20px;">
@@ -1057,8 +1060,10 @@ function nextcloudsaas_notifyAdminDnsTimeout($serviceId, $domain, $clientId, $se
             $clientEmail = $client->email;
         }
 
-        $collaboraDomain = 'collabora-' . $domain;
-        $signalingDomain = 'signaling-' . $domain;
+        // v3.0.0 — arquitetura compartilhada: collabora/signaling globais
+        $sharedHosts     = \NextcloudSaaS\Helper::getSharedHostnames([]);
+        $collaboraDomain = $sharedHosts['collabora'];
+        $signalingDomain = $sharedHosts['signaling'];
 
         $subject = "[Nextcloud SaaS] Timeout DNS - Serviço #{$serviceId} ({$domain})";
 
@@ -1068,7 +1073,7 @@ function nextcloudsaas_notifyAdminDnsTimeout($serviceId, $domain, $clientId, $se
         <h2 style="margin: 0;">Timeout de Verificação DNS</h2>
     </div>
     <div style="padding: 20px; background: #fff; border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px;">
-        <p>O cliente não configurou os registros DNS dentro do prazo de 3 dias.</p>
+        <p>O cliente não configurou o registro DNS dentro do prazo de 3 dias.</p>
 
         <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
             <tr><td style="padding: 6px 0; font-weight: bold;">Serviço:</td><td>#' . $serviceId . '</td></tr>
@@ -1077,7 +1082,7 @@ function nextcloudsaas_notifyAdminDnsTimeout($serviceId, $domain, $clientId, $se
             <tr><td style="padding: 6px 0; font-weight: bold;">IP do Servidor:</td><td>' . htmlspecialchars($serverIp) . '</td></tr>
         </table>
 
-        <p><strong>Registros DNS necessários:</strong></p>
+        <p><strong>Registro DNS necessário:</strong></p>
         <table style="width: 100%; border-collapse: collapse; border: 1px solid #ddd;">
             <tr style="background: #f5f5f5;">
                 <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Tipo</th>
@@ -1089,20 +1094,16 @@ function nextcloudsaas_notifyAdminDnsTimeout($serviceId, $domain, $clientId, $se
                 <td style="padding: 8px; border: 1px solid #ddd;">' . htmlspecialchars($domain) . '</td>
                 <td style="padding: 8px; border: 1px solid #ddd;">' . htmlspecialchars($serverIp) . '</td>
             </tr>
-            <tr>
-                <td style="padding: 8px; border: 1px solid #ddd;">A</td>
-                <td style="padding: 8px; border: 1px solid #ddd;">' . htmlspecialchars($collaboraDomain) . '</td>
-                <td style="padding: 8px; border: 1px solid #ddd;">' . htmlspecialchars($serverIp) . '</td>
-            </tr>
-            <tr>
-                <td style="padding: 8px; border: 1px solid #ddd;">A</td>
-                <td style="padding: 8px; border: 1px solid #ddd;">' . htmlspecialchars($signalingDomain) . '</td>
-                <td style="padding: 8px; border: 1px solid #ddd;">' . htmlspecialchars($serverIp) . '</td>
-            </tr>
         </table>
 
+        <p style="margin-top: 15px;">
+            <em>Serviços auxiliares globais (não requerem DNS por cliente):
+            <code>' . htmlspecialchars($collaboraDomain) . '</code>,
+            <code>' . htmlspecialchars($signalingDomain) . '</code>.</em>
+        </p>
+
         <p style="margin-top: 15px;"><strong>Ação necessária:</strong> Entre em contato com o cliente para verificar a configuração DNS,
-        ou provisione manualmente a instância após confirmar os registros DNS.</p>
+        ou provisione manualmente a instância após confirmar o registro DNS.</p>
     </div>
 </div>';
 

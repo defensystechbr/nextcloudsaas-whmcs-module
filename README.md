@@ -1,45 +1,52 @@
-# Módulo Nextcloud-SaaS para WHMCS v2.6.1
+# Módulo Nextcloud-SaaS para WHMCS v3.0.0
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 2.6.1  
-**Licença:** Proprietária
+**Versão:** 3.0.0  
+**Licença:** Proprietária  
+**Compatível com:** Nextcloud SaaS Manager **v11.x** (`manage.sh` v11.3+)
 
 ---
 
 ## 1. Visão Geral
 
-O Módulo Nextcloud-SaaS para WHMCS é uma solução completa para provisionar e gerir instâncias Nextcloud como um produto de Software as a Service (SaaS). Esta versão foi completamente reescrita para se integrar diretamente com o script `manage.sh` v10.0, que gere uma arquitetura robusta de 10 containers por instância, orquestrada por um proxy reverso Traefik com provisionamento automático de SSL via Let's Encrypt.
+O Módulo Nextcloud-SaaS para WHMCS é uma solução completa para provisionar e gerir instâncias Nextcloud como um produto de Software as a Service (SaaS). A partir da **v3.0.0**, o módulo foi alinhado à nova **arquitetura compartilhada** introduzida pelo Nextcloud SaaS Manager v11.x (`manage.sh` v11.3+): em vez dos antigos 10 containers por cliente, cada instância passa a ter apenas **3 containers dedicados** (Nextcloud, Cron e HaRP) que se conectam a **8 serviços globais `shared-*`** rodando uma única vez no host. Tudo é publicado atrás do proxy reverso Traefik com provisionamento automático de SSL via Let's Encrypt.
 
-Esta integração elimina a necessidade de scripts auxiliares no módulo, centralizando toda a lógica de gestão de instâncias no `manage.sh` do servidor, resultando em maior estabilidade, segurança e facilidade de manutenção.
+Esta integração continua centralizando toda a lógica de gestão de instâncias no `manage.sh`, resultando em maior estabilidade, segurança, densidade e facilidade de manutenção.
 
-### 1.1. Arquitetura da Instância
+### 1.1. Arquitetura da Instância (v3.0.0)
 
-Cada instância provisionada pelo módulo consiste em 10 containers Docker interligados, oferecendo uma solução completa e de alto desempenho:
+**Containers dedicados por cliente (3):**
 
-| Container       | Descrição                                               |
-|-----------------|---------------------------------------------------------|
-| `app`           | O próprio Nextcloud Hub                                 |
-| `db`            | Banco de dados MariaDB 10.11                            |
-| `redis`         | Cache de memória para transações e bloqueio de ficheiros|
-| `collabora`     | Suite de escritório online Collabora Online             |
-| `turn`          | Servidor TURN/STUN para o Nextcloud Talk                |
-| `cron`          | Execução de tarefas agendadas em background             |
-| `harp`          | HaRP (AppAPI) para integração de aplicações             |
-| `nats`          | Sistema de mensagens para o High Performance Backend    |
-| `janus`         | Gateway WebRTC para o High Performance Backend          |
-| `signaling`     | Servidor de sinalização para o High Performance Backend |
+| Container             | Descrição                                               |
+|-----------------------|---------------------------------------------------------|
+| `<cliente>-app`       | O próprio Nextcloud Hub                                 |
+| `<cliente>-cron`      | Execução de tarefas agendadas em background             |
+| `<cliente>-harp`      | HaRP (AppAPI) para integração de aplicações             |
 
-### 1.2. Requisitos de DNS
+**Serviços globais compartilhados (8):**
 
-Para que uma instância funcione corretamente, **três (3) registros DNS do tipo A** devem ser criados e apontados para o endereço IP do servidor de hospedagem:
+| Container             | Descrição                                                       |
+|-----------------------|------------------------------------------------------------------|
+| `shared-db`           | MariaDB compartilhado por todas as instâncias                    |
+| `shared-redis`        | Cache Redis compartilhado                                        |
+| `shared-collabora`    | Suite de escritório Collabora Online                             |
+| `shared-turn`         | TURN/STUN global para o Nextcloud Talk                           |
+| `shared-nats`         | Sistema de mensagens NATS para o HPB                             |
+| `shared-janus`        | Gateway WebRTC Janus para o HPB                                  |
+| `shared-signaling`    | Servidor de sinalização Spreed (HPB)                             |
+| `shared-recording`    | Servidor de gravação de chamadas Talk (novidade v11.x)           |
+
+### 1.2. Requisitos de DNS (v3.0.0)
+
+Para que uma instância funcione corretamente é necessário apenas **um (1) registro DNS do tipo A** apontando para o endereço IP do servidor de hospedagem:
 
 1.  `dominio.com.br` (para o Nextcloud)
-2.  `collabora-dominio.com.br` (para o Collabora Online)
-3.  `signaling-dominio.com.br` (para o Nextcloud Talk HPB)
 
-O Traefik irá detetar automaticamente estes domínios e provisionar os certificados SSL correspondentes.
+Os serviços auxiliares (Collabora, Talk HPB, TURN) deixaram de exigir DNS por cliente: passam a ser publicados em **hostnames globais geridos pela Defensys** (configurados no servidor via `--collabora-domain`, `--signaling-domain` e `--turn-domain` do `manage.sh`).
 
-> **Novidade v2.6.0 — Provisionamento Automático:** O cliente já não precisa de configurar os DNS antes da compra. Após o checkout, o sistema verifica automaticamente os registros DNS a cada 5 minutos. Quando todos os 3 registros estiverem corretos, a instância é criada automaticamente e o cliente recebe um email com as credenciais. Se após 3 dias o DNS não estiver configurado, o admin é notificado.
+O Traefik continua a detetar automaticamente o domínio do cliente e a provisionar o certificado SSL correspondente.
+
+> **Novidade v3.0.0:** Provisionamento automático continua a funcionar: após o checkout, o sistema verifica automaticamente o registro DNS a cada 5 minutos. Quando estiver correto, a instância é criada automaticamente e o cliente recebe um email com as credenciais. Se após 3 dias o DNS não estiver configurado, o admin é notificado.
 
 ---
 
@@ -47,7 +54,7 @@ O Traefik irá detetar automaticamente estes domínios e provisionar os certific
 
 ### 2.1. Pré-requisitos do Servidor
 
--   Um servidor Ubuntu Linux com o Nextcloud-SaaS (baseado no `manage.sh` v10.0) já instalado em `/opt/nextcloud-customers`.
+-   Um servidor Ubuntu Linux com o Nextcloud SaaS Manager **v11.x** (`manage.sh` v11.3+) já instalado em `/opt/nextcloud-customers` e com `setup-shared.sh` já executado (8 serviços `shared-*` UP).
 -   Docker e Docker Compose instalados e a funcionar.
 -   Traefik a correr como proxy reverso.
 -   Acesso SSH ao servidor a partir do servidor WHMCS.
@@ -197,13 +204,23 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 -   **Links de Acesso Rápido:** Botões para aceder diretamente ao Nextcloud, Collabora e Talk.
 -   **Informações de Armazenamento:** Barra de progresso e detalhes sobre o uso de disco (obtido via `du -sh` no servidor).
 -   **Credenciais:** Informações de acesso completas, lidas diretamente do ficheiro `.credentials` da instância.
--   **Componentes da Instância:** Lista dos 10 containers que compõem a sua instância.
--   **Aviso de DNS:** Lembrete constante dos 3 domínios DNS necessários.
+-   **Componentes da Instância:** Lista dos 3 containers dedicados (`app`, `cron`, `harp`) e dos 8 serviços globais `shared-*` aos quais a instância se conecta.
+-   **Aviso de DNS:** Lembrete constante do registro DNS necessário (1 único, na arquitetura compartilhada v3.0.0).
 
 ---
 
 ## 4. Changelog
 
+-   **v3.0.0 (2026-05-01):**
+    -   **BREAKING:** Alinhado ao Nextcloud SaaS Manager v11.x (arquitetura compartilhada).
+    -   Cada instância passa a ter **3 containers dedicados** (`app`, `cron`, `harp`) + **8 serviços globais `shared-*`**.
+    -   `Helper::getRequiredDomains()` agora devolve **1 único DNS** por cliente (só o domínio principal).
+    -   `Helper::checkDnsRecords()` valida apenas o registro principal; Collabora/Signaling/TURN passam a hostnames globais.
+    -   Hooks de carrinho e e-mails refeitos para refletir 1 DNS único.
+    -   Novo método `SSHManager::verifySharedServices()` para checar os 8 containers `shared-*`.
+    -   Novo botão admin **“Serviços Compartilhados”** (`checkSharedServices`) com painel HTML.
+    -   `clientarea.tpl` reformulado: aviso de DNS de 1 registro, lista de 3 containers dedicados + 8 serviços globais (incluindo Talk Recording), confirmação de restart atualizada.
+    -   `whmcs.json`, README e USAGE atualizados para v3.0.0.
 -   **v2.6.1 (2026-04-07):**
     -   **Correção crítica: Fatal Error por redeclaração de funções.** O WHMCS carregava ambos `includes/hooks/nextcloudsaas_hooks.php` e `modules/servers/nextcloudsaas/hooks.php`, causando `Cannot redeclare nextcloudsaas_cronProcessPendingService()`. O `hooks.php` do módulo agora é apenas um ficheiro de referência que evita duplicação.
     -   **Correção: Hook alterado de `DailyCronJob` para `AfterCronJob`.** O `DailyCronJob` executava apenas 1x por dia. O `AfterCronJob` executa a cada execução do cron WHMCS (recomendado: 5 minutos), garantindo verificação DNS frequente.

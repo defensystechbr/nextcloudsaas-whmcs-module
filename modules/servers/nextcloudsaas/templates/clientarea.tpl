@@ -301,11 +301,11 @@
     <div class="nc-body">
 
         {* ================================================================ *}
-        {* AVISO DE DNS                                                     *}
+        {* AVISO DE DNS (v3.0.0 — arquitetura compartilhada: 1 registro)   *}
         {* ================================================================ *}
         <div class="nc-dns-notice">
-            <strong>&#128204; Registros DNS Necessarios (3 dominios)</strong>
-            Para o correto funcionamento, os seguintes registros DNS tipo <strong>A</strong> devem apontar para o IP do servidor: <code>{$serverIp}</code>
+            <strong>&#128204; Registro DNS Necessario (1 dominio)</strong>
+            Para o correto funcionamento, o seguinte registro DNS tipo <strong>A</strong> deve apontar para o IP do servidor: <code>{$serverIp}</code>
             <table style="width:100%; border-collapse:collapse; margin-top:10px; font-size:13px;">
                 <tr style="background:rgba(0,0,0,0.05);">
                     <th style="padding:6px 10px; text-align:left; border:1px solid rgba(0,0,0,0.1);">Tipo</th>
@@ -319,24 +319,15 @@
                     <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$serverIp}</code></td>
                     <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);">Nextcloud</td>
                 </tr>
-                <tr>
-                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><strong>A</strong></td>
-                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$collaboraDomain}</code></td>
-                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$serverIp}</code></td>
-                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);">Collabora Online</td>
-                </tr>
-                <tr>
-                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><strong>A</strong></td>
-                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$signalingDomain}</code></td>
-                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);"><code>{$serverIp}</code></td>
-                    <td style="padding:6px 10px; border:1px solid rgba(0,0,0,0.1);">Signaling HPB</td>
-                </tr>
             </table>
+            <div style="margin-top:10px; font-size:12px; color:#555;">
+                <em>Os servicos auxiliares <strong>Collabora Online</strong> (<code>{$collaboraDomain}</code>) e <strong>Talk HPB</strong> (<code>{$signalingDomain}</code>) sao publicados em dominios globais da Defensys e nao exigem nenhuma configuracao DNS de sua parte.</em>
+            </div>
             {if $instanceStatus == 'Desconhecido' || $instanceStatus == ''}
             <div style="margin-top:12px; padding:10px; background:rgba(255,193,7,0.15); border:1px solid rgba(255,193,7,0.3); border-radius:6px;">
                 <strong>&#9888; Aguardando configuracao DNS</strong><br>
-                O sistema verifica automaticamente os registros DNS a cada 5 minutos.
-                Quando todos os 3 registros estiverem corretos, sua instancia sera criada automaticamente
+                O sistema verifica automaticamente o registro DNS a cada 5 minutos.
+                Quando estiver correto, sua instancia sera criada automaticamente
                 e voce recebera um email com as credenciais de acesso.
             </div>
             {/if}
@@ -554,40 +545,50 @@
         </div>
 
         {* ================================================================ *}
-        {* COMPONENTES DA INSTANCIA                                         *}
+        {* COMPONENTES DA INSTANCIA (v3.0.0 — 3 containers do cliente +    *}
+        {* 8 servicos globais shared-*)                                     *}
         {* ================================================================ *}
         <div class="nc-section">
-            <h3>&#128230; Componentes da Instancia ({$containersTotal} Containers)</h3>
+            <h3>&#128230; Componentes da Sua Instancia (3 containers dedicados)</h3>
             <div class="nc-components-grid">
                 <div class="nc-component-item">
                     <span class="nc-comp-icon">&#9729;</span> Nextcloud (app)
                 </div>
                 <div class="nc-component-item">
-                    <span class="nc-comp-icon">&#128451;</span> MariaDB 10.11 (db)
-                </div>
-                <div class="nc-component-item">
-                    <span class="nc-comp-icon">&#9889;</span> Redis (cache)
-                </div>
-                <div class="nc-component-item">
                     <span class="nc-comp-icon">&#128339;</span> Cron (agendamento)
                 </div>
                 <div class="nc-component-item">
-                    <span class="nc-comp-icon">&#128196;</span> Collabora Online (office)
+                    <span class="nc-comp-icon">&#128268;</span> HaRP (AppAPI proxy)
+                </div>
+            </div>
+            <h3 style="margin-top:18px;">&#127760; Servicos Globais Compartilhados</h3>
+            <div style="font-size:12px; color:#555; margin-bottom:8px;">
+                <em>Servicos de alta disponibilidade operados pela Defensys e utilizados por todas as instancias.</em>
+            </div>
+            <div class="nc-components-grid">
+                <div class="nc-component-item">
+                    <span class="nc-comp-icon">&#128451;</span> MariaDB (shared-db)
                 </div>
                 <div class="nc-component-item">
-                    <span class="nc-comp-icon">&#128222;</span> TURN/STUN (coturn)
+                    <span class="nc-comp-icon">&#9889;</span> Redis (shared-redis)
                 </div>
                 <div class="nc-component-item">
-                    <span class="nc-comp-icon">&#128268;</span> HaRP (AppAPI)
+                    <span class="nc-comp-icon">&#128196;</span> Collabora Online (shared-collabora)
                 </div>
                 <div class="nc-component-item">
-                    <span class="nc-comp-icon">&#9993;</span> NATS (messaging)
+                    <span class="nc-comp-icon">&#128222;</span> TURN/STUN (shared-turn)
                 </div>
                 <div class="nc-component-item">
-                    <span class="nc-comp-icon">&#127909;</span> Janus Gateway (WebRTC)
+                    <span class="nc-comp-icon">&#9993;</span> NATS (shared-nats)
                 </div>
                 <div class="nc-component-item">
-                    <span class="nc-comp-icon">&#128225;</span> Spreed Signaling (HPB)
+                    <span class="nc-comp-icon">&#127909;</span> Janus Gateway (shared-janus)
+                </div>
+                <div class="nc-component-item">
+                    <span class="nc-comp-icon">&#128225;</span> Spreed Signaling (shared-signaling)
+                </div>
+                <div class="nc-component-item">
+                    <span class="nc-comp-icon">&#128249;</span> Talk Recording (shared-recording)
                 </div>
             </div>
         </div>
@@ -624,7 +625,7 @@
             </a>
             <a href="clientarea.php?action=productdetails&id={$serviceid}&modop=custom&a=restartInstance"
                class="nc-btn nc-btn-secondary"
-               onclick="return confirm('Tem a certeza que deseja reiniciar a sua instancia Nextcloud? Todos os 10 containers serao reiniciados.');">
+               onclick="return confirm('Tem a certeza que deseja reiniciar a sua instancia Nextcloud? Os 3 containers dedicados (app, cron e harp) serao reiniciados. Os servicos globais compartilhados nao sao afetados.');">
                 <span class="nc-btn-icon">&#128260;</span>
                 Reiniciar Instancia
             </a>
