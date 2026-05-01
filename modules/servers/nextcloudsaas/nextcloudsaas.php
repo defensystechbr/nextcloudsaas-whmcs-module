@@ -4,20 +4,24 @@
  *
  * Módulo de provisionamento que permite gerir instâncias Nextcloud
  * como produto SaaS dentro do WHMCS. Integra-se diretamente com o
- * manage.sh v10.0 existente no servidor de destino, que gere instâncias
- * com 10 containers cada (app, db, redis, collabora, turn, cron,
- * harp, nats, janus, signaling) atrás de um proxy Traefik com SSL
- * automático via Let's Encrypt.
+ * Nextcloud SaaS Manager v11.x (`manage.sh` v11.3+) existente no
+ * servidor de destino, que opera arquitetura compartilhada:
+ *   - 3 containers por cliente: `<cliente>-app`, `<cliente>-cron`,
+ *     `<cliente>-harp`.
+ *   - 8 serviços globais `shared-*` (db, redis, collabora, turn,
+ *     nats, janus, signaling, recording) compartilhados entre
+ *     todas as instâncias, atrás do proxy Traefik com SSL
+ *     automático via Let's Encrypt.
  *
- * Cada instância requer 3 registros DNS:
- *   - dominio.com.br (Nextcloud)
- *   - collabora-dominio.com.br (Collabora Online)
- *   - signaling-dominio.com.br (HPB Signaling)
+ * Cada instância requer apenas 1 registro DNS A apontando para o
+ * IP do servidor: `dominio.com.br`. Collabora, Talk HPB e TURN
+ * passam a ser publicados em hostnames globais geridos pela
+ * Defensys e não exigem DNS por cliente.
  *
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.6.1
+ * @version    3.0.0
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -222,15 +226,17 @@ function nextcloudsaas_getClientName($params)
  * Provisionar uma nova instância Nextcloud.
  *
  * Executa o manage.sh com o comando 'create' no servidor de destino.
- * O manage.sh cria automaticamente 10 containers, configura SSL via
- * Traefik/Let's Encrypt, instala apps essenciais e executa 16 passos
- * de pós-instalação.
+ * O manage.sh cria automaticamente os 3 containers dedicados do
+ * cliente (`app`, `cron`, `harp`) e os conecta aos 8 serviços
+ * globais `shared-*` já existentes no servidor, configura SSL via
+ * Traefik/Let's Encrypt, instala apps essenciais e executa todos os
+ * passos de pós-instalação do manager v11.x.
  *
  * Pré-requisitos (devem ser comunicados ao cliente):
- *   - 3 registros DNS A apontando para o IP do servidor:
+ *   - 1 registro DNS A apontando para o IP do servidor:
  *     1. dominio.com.br
- *     2. collabora-dominio.com.br
- *     3. signaling-dominio.com.br
+ *   (Collabora, Signaling HPB e TURN agora rodam em hostnames globais
+ *    e não exigem DNS por cliente — v3.0.0/manager v11.x.)
  *
  * @param array $params Parâmetros comuns do módulo
  * @return string "success" ou mensagem de erro
@@ -254,7 +260,7 @@ function nextcloudsaas_CreateAccount(array $params)
             $dnsCheck = Helper::checkDnsRecords($domain, $serverIp);
             if (!$dnsCheck['all_ok']) {
                 return "DNS não configurado corretamente. {$dnsCheck['message']}\n"
-                     . "Os 3 registros DNS devem apontar para {$serverIp}.\n"
+                     . "O registro DNS A do domínio deve apontar para {$serverIp}.\n"
                      . "O sistema verificará automaticamente a cada 5 minutos e provisionará quando o DNS estiver correto.";
             }
         }
@@ -357,8 +363,10 @@ function nextcloudsaas_CreateAccount(array $params)
 /**
  * Suspender uma instância Nextcloud.
  *
- * Executa manage.sh stop para parar todos os 10 containers da instância.
- * Os dados são preservados nos volumes Docker.
+ * Executa manage.sh stop para parar os 3 containers dedicados da
+ * instância (`<cliente>-app`, `<cliente>-cron`, `<cliente>-harp`).
+ * Os serviços globais `shared-*` não são afetados. Os dados são
+ * preservados nos volumes Docker.
  *
  * @param array $params Parâmetros comuns do módulo
  * @return string "success" ou mensagem de erro
@@ -392,7 +400,9 @@ function nextcloudsaas_SuspendAccount(array $params)
 /**
  * Reativar uma instância Nextcloud previamente suspensa.
  *
- * Executa manage.sh start para reiniciar todos os 10 containers.
+ * Executa manage.sh start para reiniciar os 3 containers dedicados
+ * da instância (`app`, `cron`, `harp`). Os serviços globais
+ * `shared-*` permanecem intactos.
  *
  * @param array $params Parâmetros comuns do módulo
  * @return string "success" ou mensagem de erro
@@ -801,15 +811,16 @@ function nextcloudsaas_AdminSingleSignOn(array $params)
 function nextcloudsaas_AdminCustomButtonArray()
 {
     return [
-        'Verificar Estado'       => 'checkStatus',
-        'Verificar DNS'          => 'checkDns',
-        'Reiniciar Instância'    => 'restartInstance',
-        'Fazer Backup'           => 'backupInstance',
-        'Atualizar Instância'    => 'updateInstance',
-        'Testar Conexão SSH'     => 'testSSH',
-        'Testar API Nextcloud'   => 'testAPI',
-        'Ver Credenciais'        => 'viewCredentials',
-        'Ver Logs'               => 'viewLogs',
+        'Verificar Estado'              => 'checkStatus',
+        'Verificar DNS'                 => 'checkDns',
+        'Serviços Compartilhados'       => 'checkSharedServices',
+        'Reiniciar Instância'           => 'restartInstance',
+        'Fazer Backup'                  => 'backupInstance',
+        'Atualizar Instância'           => 'updateInstance',
+        'Testar Conexão SSH'            => 'testSSH',
+        'Testar API Nextcloud'          => 'testAPI',
+        'Ver Credenciais'               => 'viewCredentials',
+        'Ver Logs'                      => 'viewLogs',
     ];
 }
 
@@ -870,10 +881,11 @@ function nextcloudsaas_checkStatus(array $params)
 }
 
 /**
- * Verificar o estado dos registros DNS da instância.
+ * Verificar o estado do registro DNS da instância.
  *
- * Verifica se os 3 registros DNS (principal, collabora, signaling)
- * apontam para o IP do servidor configurado no WHMCS.
+ * Verifica se o registro DNS A do domínio principal aponta para o
+ * IP do servidor configurado no WHMCS. Na arquitetura compartilhada
+ * v3.0.0 (manager v11.x), apenas 1 registro é exigido por cliente.
  *
  * @param array $params Parâmetros comuns do módulo
  * @return string "success" ou mensagem de erro
@@ -944,6 +956,65 @@ function nextcloudsaas_checkDns(array $params)
 
     } catch (\Exception $e) {
         return 'Exceção ao verificar DNS: ' . $e->getMessage();
+    }
+
+    return 'success';
+}
+
+/**
+ * Verificar o estado dos serviços globais compartilhados (v3.0.0).
+ *
+ * Na arquitetura compartilhada do manager v11.x, todas as instâncias
+ * dependem dos 8 containers globais `shared-*` rodando no host:
+ * shared-db, shared-redis, shared-collabora, shared-turn, shared-nats,
+ * shared-janus, shared-signaling e shared-recording.
+ *
+ * @param array $params Parâmetros comuns do módulo
+ * @return string "success" ou mensagem de erro
+ */
+function nextcloudsaas_checkSharedServices(array $params)
+{
+    try {
+        $ssh = nextcloudsaas_getSSHManager($params);
+        $check = $ssh->verifySharedServices();
+
+        Helper::log('checkSharedServices', [], $check);
+
+        $html = '<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0;">';
+        $html .= '<tr style="background:#f5f5f5;">';
+        $html .= '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Serviço</th>';
+        $html .= '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Status</th>';
+        $html .= '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Resultado</th>';
+        $html .= '</tr>';
+        foreach ($check['services'] as $name => $svc) {
+            $icon = $svc['running']
+                ? '<span style="color:green;font-weight:bold;">UP</span>'
+                : '<span style="color:red;font-weight:bold;">DOWN</span>';
+            $html .= '<tr>'
+                  . '<td style="padding:6px 10px;border:1px solid #ddd;"><code>' . htmlspecialchars($name) . '</code></td>'
+                  . '<td style="padding:6px 10px;border:1px solid #ddd;">' . htmlspecialchars($svc['status']) . '</td>'
+                  . '<td style="padding:6px 10px;border:1px solid #ddd;">' . $icon . '</td>'
+                  . '</tr>';
+        }
+        $html .= '</table>';
+
+        $overall = $check['all_ok']
+            ? '<span style="background:#27ae60;color:#fff;padding:3px 10px;border-radius:3px;font-size:12px;">TODOS OS SERVIÇOS COMPARTILHADOS UP (' . $check['up'] . '/' . $check['total'] . ')</span>'
+            : '<span style="background:#e74c3c;color:#fff;padding:3px 10px;border-radius:3px;font-size:12px;">SERVIÇOS COMPARTILHADOS COM PROBLEMAS (' . $check['up'] . '/' . $check['total'] . ' UP)</span>';
+
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        $_SESSION['nextcloudsaas_panel'] = [
+            'type'      => 'shared_services',
+            'title'     => 'Serviços Globais Compartilhados (manager v11.x)',
+            'content'   => $overall . $html,
+            'serviceid' => $params['serviceid'],
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
+
+    } catch (\Exception $e) {
+        return 'Exceção ao verificar serviços compartilhados: ' . $e->getMessage();
     }
 
     return 'success';

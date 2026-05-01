@@ -3,9 +3,11 @@
  * SSH Manager para comunicação com o servidor de destino
  *
  * Esta classe gere a conexão SSH ao servidor onde as instâncias
- * Nextcloud são hospedadas. Integra-se diretamente com o manage.sh
- * v10.0 existente no servidor, que é o script principal de gestão
- * de instâncias Nextcloud SaaS.
+ * Nextcloud são hospedadas. Integra-se diretamente com o
+ * Nextcloud SaaS Manager v11.x (`manage.sh` v11.3+) existente
+ * no servidor, que é o script principal de gestão das instâncias
+ * em arquitetura compartilhada (3 containers por cliente + 8
+ * serviços globais `shared-*`).
  *
  * Utiliza a biblioteca phpseclib3 (PHP puro) como método principal
  * de conexão SSH, sem necessidade de extensões nativas como php-ssh2.
@@ -14,7 +16,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.2.0
+ * @version    3.0.0
  */
 
 namespace NextcloudSaaS;
@@ -958,6 +960,83 @@ class SSHManager
         return [
             'running' => !empty($result['output']) && strpos($result['output'], 'Up') !== false,
             'status'  => trim($result['output']),
+        ];
+    }
+
+    /**
+     * Verificar o estado dos serviços globais compartilhados (v3.0.0).
+     *
+     * Na arquitetura compartilhada do manager v11.x, todas as instâncias
+     * dependem de 8 containers globais `shared-*` rodando no host:
+     *   shared-db, shared-redis, shared-collabora, shared-turn,
+     *   shared-nats, shared-janus, shared-signaling, shared-recording.
+     *
+     * Este método consulta o Docker via `docker ps` e devolve o
+     * estado individual + um sumário agregado.
+     *
+     * @return array {
+     *     all_ok: bool, total: int, up: int, missing: string[],
+     *     services: array<string,array{running:bool,status:string}>
+     * }
+     */
+    public function verifySharedServices()
+    {
+        $expected = [
+            'shared-db',
+            'shared-redis',
+            'shared-collabora',
+            'shared-turn',
+            'shared-nats',
+            'shared-janus',
+            'shared-signaling',
+            'shared-recording',
+        ];
+
+        // Listar todos os containers (nome + status) numa só chamada
+        $innerCmd = "docker ps -a --filter 'name=shared-' --format '{{.Names}}|{{.Status}}' 2>/dev/null";
+        $cmd = $this->wrapWithSudo($innerCmd);
+        $result = $this->executeCommand($cmd, 15);
+
+        $byName = [];
+        if (!empty($result['output'])) {
+            foreach (preg_split('/\r?\n/', trim($result['output'])) as $line) {
+                if (strpos($line, '|') === false) {
+                    continue;
+                }
+                list($name, $status) = explode('|', $line, 2);
+                $byName[trim($name)] = trim($status);
+            }
+        }
+
+        $services = [];
+        $missing = [];
+        $up = 0;
+
+        foreach ($expected as $name) {
+            if (isset($byName[$name])) {
+                $running = (strpos($byName[$name], 'Up') === 0);
+                $services[$name] = [
+                    'running' => $running,
+                    'status'  => $byName[$name],
+                ];
+                if ($running) {
+                    $up++;
+                }
+            } else {
+                $services[$name] = [
+                    'running' => false,
+                    'status'  => 'Não encontrado',
+                ];
+                $missing[] = $name;
+            }
+        }
+
+        return [
+            'all_ok'   => ($up === count($expected)),
+            'total'    => count($expected),
+            'up'       => $up,
+            'missing'  => $missing,
+            'services' => $services,
         ];
     }
 

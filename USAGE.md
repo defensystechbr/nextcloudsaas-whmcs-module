@@ -9,26 +9,34 @@ Este documento detalha a função de cada um dos **Module Commands** disponívei
 
 ## Arquitetura da Plataforma
 
-Cada instância Nextcloud é composta por **10 containers Docker** geridos via `docker-compose`, atrás de um proxy reverso **Traefik** com SSL automático via Let's Encrypt. Não é utilizado Apache nem Nginx diretamente — toda a infraestrutura é baseada em containers.
+Cada instância Nextcloud é composta por **3 containers Docker dedicados** (`<cliente>-app`, `<cliente>-cron`, `<cliente>-harp`) que se conectam a **8 serviços globais `shared-*`** (db, redis, collabora, turn, nats, janus, signaling, recording) geridos via `docker-compose` no host. Tudo fica atrás do proxy reverso **Traefik** com SSL automático via Let's Encrypt. Não é utilizado Apache nem Nginx diretamente — toda a infraestrutura é baseada em containers (arquitetura compartilhada do manager v11.x).
 
-| Container | Imagem | Função |
-|---|---|---|
-| **app** | Nextcloud (oficial) | Aplicação Nextcloud principal |
-| **db** | MariaDB 10.11 | Base de dados relacional |
-| **redis** | Redis Alpine | Cache e locking de ficheiros |
-| **collabora** | Collabora Online | Edição colaborativa de documentos (Nextcloud Office) |
-| **turn** | coturn | Servidor TURN/STUN para WebRTC (Talk) |
-| **cron** | Nextcloud (cron) | Execução de tarefas agendadas em background |
-| **harp** | HaRP | Daemon para AppAPI (substitui Docker Socket Proxy) |
-| **nats** | NATS | Messaging para o High Performance Backend (HPB) |
-| **janus** | Janus Gateway | Gateway WebRTC para o HPB (Talk) |
-| **signaling** | Spreed Signaling | Servidor de sinalização para o HPB (Talk) |
+**Containers dedicados por cliente (3):**
 
-Cada instância requer **3 registros DNS** (tipo A) apontando para o IP do servidor:
+| Container               | Imagem               | Função                                              |
+|-------------------------|----------------------|-----------------------------------------------------|
+| **`<cliente>-app`**     | Nextcloud (oficial)  | Aplicação Nextcloud principal                       |
+| **`<cliente>-cron`**    | Nextcloud (cron)     | Execução de tarefas agendadas em background         |
+| **`<cliente>-harp`**    | HaRP                 | Daemon para AppAPI (substitui Docker Socket Proxy)  |
+
+**Serviços globais compartilhados (8):**
+
+| Container               | Imagem                | Função                                                  |
+|-------------------------|-----------------------|---------------------------------------------------------|
+| **shared-db**           | MariaDB 10.11         | Base de dados relacional compartilhada                  |
+| **shared-redis**        | Redis Alpine          | Cache e locking de ficheiros                            |
+| **shared-collabora**    | Collabora Online      | Edição colaborativa de documentos (Nextcloud Office)   |
+| **shared-turn**         | coturn                | Servidor TURN/STUN global para WebRTC (Talk)            |
+| **shared-nats**         | NATS                  | Messaging para o High Performance Backend (HPB)         |
+| **shared-janus**        | Janus Gateway         | Gateway WebRTC para o HPB (Talk)                        |
+| **shared-signaling**    | Spreed Signaling      | Servidor de sinalização para o HPB (Talk)               |
+| **shared-recording**    | Talk Recording Server | Gravação de chamadas Talk (novidade do manager v11.x)  |
+
+Cada instância requer apenas **1 registro DNS** (tipo A) apontando para o IP do servidor:
 
 1. `dominio.com.br` — Nextcloud
-2. `collabora-dominio.com.br` — Collabora Online
-3. `signaling-dominio.com.br` — HPB Signaling
+
+> Os serviços auxiliares (Collabora, HPB Signaling e TURN) deixaram de exigir DNS por cliente: passam a ser publicados em hostnames globais (`collabora.<base>`, `signaling.<base>`, `turn-01.<base>`) configurados no servidor via `--collabora-domain`, `--signaling-domain` e `--turn-domain` do `manage.sh`.
 
 Os ficheiros de cada instância ficam em `/opt/nextcloud-customers/<nome-cliente>/`, incluindo o `docker-compose.yml`, `.env`, `.credentials` e os volumes dos containers.
 
@@ -54,12 +62,12 @@ Estes são os comandos padrão do WHMCS para automação de provisionamento. Sã
 
 Provisiona uma nova instância Nextcloud completa no servidor. O módulo conecta-se via SSH ao servidor e executa o `manage.sh` com o comando `create`, que realiza automaticamente as seguintes operações:
 
-1. Verifica os 3 registros DNS necessários (Nextcloud, Collabora, Signaling)
+1. Verifica o registro DNS necessário (apenas o domínio principal do Nextcloud)
 2. Gera passwords aleatórias para todos os serviços (admin Nextcloud, Collabora, MariaDB, TURN, Signaling, HaRP)
 3. Encontra uma porta TURN disponível (range 3478-3999)
 4. Cria o diretório da instância em `/opt/nextcloud-customers/<cliente>/`
 5. Gera os ficheiros `.env`, `.credentials`, `docker-compose.yml` e configurações HPB
-6. Inicia os 10 containers via `docker-compose up -d`
+6. Inicia os 3 containers dedicados (`app`, `cron`, `harp`) via `docker-compose up -d` e os conecta aos serviços globais `shared-*`
 7. Aguarda o Nextcloud ficar instalado (até 9 minutos)
 8. Executa 16 passos de pós-instalação:
    - Configura background jobs via cron
@@ -92,7 +100,7 @@ Verifica se a instância está ativa e, caso não esteja a correr, tenta iniciá
 **Função PHP:** `nextcloudsaas_SuspendAccount`
 **Comando no servidor:** `manage.sh <cliente> _ stop`
 
-Suspende temporariamente uma instância Nextcloud, parando todos os 10 containers Docker via `docker-compose stop`. Os containers são parados mas não removidos, e todos os volumes de dados (base de dados, ficheiros do Nextcloud, configurações) permanecem intactos no servidor. O cliente deixa de conseguir aceder ao seu Nextcloud enquanto os containers estiverem parados.
+Suspende temporariamente uma instância Nextcloud, parando os 3 containers dedicados (`app`, `cron`, `harp`) via `docker-compose stop`. Os containers são parados mas não removidos, e todos os volumes de dados (ficheiros do Nextcloud, configurações e a base de dados desta instância dentro do `shared-db`) permanecem intactos. Os serviços globais `shared-*` continuam a funcionar normalmente para as restantes instâncias. O cliente deixa de conseguir aceder ao seu Nextcloud enquanto os containers dedicados estiverem parados.
 
 Esta ação é tipicamente acionada automaticamente quando uma fatura não é paga dentro do prazo configurado no WHMCS.
 
@@ -101,7 +109,7 @@ Esta ação é tipicamente acionada automaticamente quando uma fatura não é pa
 **Função PHP:** `nextcloudsaas_UnsuspendAccount`
 **Comando no servidor:** `manage.sh <cliente> _ start`
 
-Reativa uma instância Nextcloud que foi previamente suspensa, reiniciando todos os 10 containers Docker via `docker-compose up -d`. O cliente volta a poder aceder ao seu Nextcloud normalmente, com todos os dados intactos.
+Reativa uma instância Nextcloud que foi previamente suspensa, reiniciando os 3 containers dedicados via `docker-compose up -d`. O cliente volta a poder aceder ao seu Nextcloud normalmente, com todos os dados intactos.
 
 Esta ação é tipicamente acionada automaticamente quando o cliente paga a fatura em atraso.
 
@@ -143,7 +151,7 @@ Estes botões foram adicionados especificamente para o módulo Nextcloud-SaaS, f
 **Função PHP:** `nextcloudsaas_checkStatus`
 **Comando no servidor:** `manage.sh <cliente> _ status`
 
-Verifica o estado detalhado da instância Nextcloud. O `manage.sh status` verifica o estado de cada um dos 10 containers Docker e apresenta:
+Verifica o estado detalhado da instância Nextcloud. O `manage.sh status` verifica o estado dos 3 containers dedicados desta instância (`app`, `cron`, `harp`) e apresenta:
 
 - Estado de cada container (running/stopped/exited)
 - URLs de acesso (Nextcloud, Collabora, Signaling)
@@ -157,7 +165,7 @@ Verifica o estado detalhado da instância Nextcloud. O `manage.sh status` verifi
 **Função PHP:** `nextcloudsaas_restartInstance`
 **Comando no servidor:** `manage.sh <cliente> _ stop` seguido de `manage.sh <cliente> _ start`
 
-Reinicia todos os 10 containers da instância, executando um `docker-compose stop` seguido de `docker-compose up -d` com um intervalo de 3 segundos entre as operações. Este comando é útil nas seguintes situações:
+Reinicia os 3 containers dedicados da instância (`app`, `cron`, `harp`), executando um `docker-compose stop` seguido de `docker-compose up -d` com um intervalo de 3 segundos entre as operações. Os serviços globais `shared-*` não são tocados. Este comando é útil nas seguintes situações:
 
 - Após alterações de configuração
 - Quando a instância apresenta lentidão ou erros intermitentes
@@ -235,7 +243,7 @@ Exibe as credenciais completas da instância. O ficheiro `.credentials` contém:
 - **TURN Server:** Secret, porta e endereço
 - **Signaling Server:** URL e secret
 - **HaRP (AppAPI):** Shared key
-- **DNS necessários:** Os 3 registros A com o IP do servidor
+- **DNS necessário:** 1 registro A com o IP do servidor (apenas o domínio principal)
 
 ### Ver Logs
 
@@ -258,14 +266,15 @@ Este comando é essencial para diagnosticar problemas na aplicação, tais como:
 
 | Botão | Categoria | Comando manage.sh | Ação Principal |
 |---|---|---|---|
-| **Create** | Ciclo de Vida | `create` | Provisiona 10 containers + 16 passos de pós-instalação |
+| **Create** | Ciclo de Vida | `create` | Provisiona 3 containers dedicados + integração com 8 `shared-*` + 16 passos de pós-instalação |
 | **Renew** | Ciclo de Vida | `status` / `start` | Verifica e reinicia se necessário |
-| **Suspend** | Ciclo de Vida | `stop` | Para os 10 containers (dados intactos) |
-| **Unsuspend** | Ciclo de Vida | `start` | Reinicia os 10 containers |
+| **Suspend** | Ciclo de Vida | `stop` | Para os 3 containers dedicados (dados intactos) |
+| **Unsuspend** | Ciclo de Vida | `start` | Reinicia os 3 containers dedicados |
 | **Terminate** | Ciclo de Vida | `backup` + `remove` | Backup automático + remoção permanente |
 | **Change Package** | Ciclo de Vida | `occ` (via Docker) | Altera quota de armazenamento |
 | **Change Password** | Ciclo de Vida | API OCS / `occ` | Altera password do admin |
-| **Verificar Estado** | Gestão | `status` | Estado dos 10 containers + occ status |
+| **Verificar Estado** | Gestão | `status` | Estado dos 3 containers dedicados + occ status |
+| **Serviços Compartilhados** | Gestão | n/a (docker ps) | Estado dos 8 serviços globais `shared-*` |
 | **Reiniciar Instância** | Gestão | `stop` + `start` | Para e reinicia todos os containers |
 | **Fazer Backup** | Gestão | `backup` | mysqldump + tar.gz de toda a instância |
 | **Atualizar Instância** | Gestão | `update` | Backup + pull + upgrade + reindex |

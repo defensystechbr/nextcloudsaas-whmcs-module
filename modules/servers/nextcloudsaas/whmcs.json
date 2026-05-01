@@ -6,27 +6,28 @@
     "category": "servers",
     "description": {
         "name": "Nextcloud SaaS",
-        "tagline": "Gestão automatizada de instâncias Nextcloud como serviço SaaS",
-        "long": "Módulo de provisionamento WHMCS para gestão completa de instâncias Nextcloud SaaS. Integra-se com o manage.sh v10.0 existente no servidor, que gere instâncias com 10 containers cada (app, db, redis, collabora, turn, cron, harp, nats, janus, signaling) atrás de um proxy Traefik com SSL automático via Let's Encrypt. Suporta criação, suspensão, reativação, terminação, backup, atualização e gestão de utilizadores via API OCS e occ.",
+        "tagline": "Gestão automatizada de instâncias Nextcloud SaaS em arquitetura compartilhada (manager v11.x)",
+        "long": "Módulo de provisionamento WHMCS para gestão completa de instâncias Nextcloud como produto SaaS. Integra-se diretamente com o Nextcloud SaaS Manager v11.x (manage.sh v11.3+) instalado no servidor de destino, que opera arquitetura compartilhada: 3 containers dedicados por cliente (app, cron e harp) + 8 serviços globais shared-* (db, redis, collabora, turn, nats, janus, signaling e recording) atrás de um proxy Traefik com SSL automático via Let's Encrypt. Cada instância exige apenas 1 registro DNS A por parte do cliente. Suporta criação, suspensão, reativação, terminação com backup, atualização do Nextcloud, alteração de pacote e password, gestão de utilizadores via API OCS/occ, verificação automática de DNS por cron e provisionamento automatizado quando o DNS estiver correto.",
         "features": [
-            "Provisionamento automático de instâncias Nextcloud com 10 containers",
-            "Integração direta com manage.sh v10.0 existente",
-            "SSL automático via Traefik/Let's Encrypt",
-            "Collabora Online integrado para edição de documentos",
-            "Nextcloud Talk com HPB completo (NATS + Janus + Signaling)",
-            "HaRP para AppAPI",
-            "Gestão de utilizadores via API OCS e occ",
-            "Backup automático antes de terminação",
-            "Atualização de instâncias via WHMCS",
-            "Monitorização de uso de disco",
-            "Área de cliente personalizada com informações detalhadas",
+            "Arquitetura compartilhada do manager v11.x: 3 containers dedicados por cliente + 8 serviços globais",
+            "Apenas 1 registro DNS A por cliente — Collabora, Talk HPB e TURN em hostnames globais",
+            "Provisionamento automático via cron quando o DNS estiver correto (verificação a cada 5 minutos)",
+            "Integração direta com manage.sh v11.3+ via SSH (phpseclib3, ssh2 ou cliente nativo)",
+            "SSL automático via Traefik/Let's Encrypt para o domínio do cliente",
+            "Collabora Online compartilhado para edição colaborativa de documentos",
+            "Nextcloud Talk com HPB compartilhado (NATS + Janus + Signaling) e Talk Recording",
+            "HaRP dedicado por cliente para AppAPI",
+            "Gestão de utilizadores via API OCS e comando occ",
+            "Backup automático antes da terminação",
+            "Atualização de instâncias diretamente pelo WHMCS",
+            "Monitorização de uso de disco e estado dos containers/serviços compartilhados",
+            "Área de cliente personalizada com credenciais, DNS, componentes e ações",
             "Suporte a autenticação SSH por password e chave",
-            "Verificação automática de DNS e provisionamento por cron",
             "Email automático ao cliente com credenciais após provisionamento",
-            "Timeout de 3 dias com notificação ao admin para DNS não configurado"
+            "Timeout configurável de 3 dias com notificação ao admin se DNS não for configurado"
         ]
     },
-    "version": "2.6.1",
+    "version": "3.0.0",
     "authors": [
         {
             "name": "Defensys / Manus AI"

@@ -4,13 +4,18 @@
  *
  * Contém funções auxiliares para geração de passwords, validação
  * de domínios, formatação de quotas e outras utilidades comuns.
- * Alinhado com a arquitetura real do manage.sh v10.0 que utiliza
- * Traefik, 10 containers por instância e 3 domínios DNS.
+ * Alinhado com a arquitetura real do manage.sh v11.3+ (Nextcloud SaaS
+ * Manager v11.x), que utiliza Traefik + 3 containers por instância
+ * (app, cron, harp) + 8 serviços compartilhados globais (shared-db,
+ * shared-redis, shared-collabora, shared-turn, shared-nats,
+ * shared-janus, shared-signaling, shared-recording) e exige apenas
+ * 1 (um) registro DNS A por instância de cliente, apontando para o IP
+ * do servidor.
  *
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    2.0.0
+ * @version    3.0.0
  */
 
 namespace NextcloudSaaS;
@@ -28,11 +33,30 @@ class Helper
     const MANAGE_SCRIPT = '/opt/nextcloud-customers/manage.sh';
 
     /**
-     * Lista de sufixos dos 10 containers por instância
+     * Lista de sufixos dos 3 containers por instância (arquitetura
+     * compartilhada do Nextcloud SaaS Manager v11.0+).
+     *
+     * @see https://github.com/defensystechbr/nextcloud-saas-manager
      */
     const CONTAINER_SUFFIXES = [
-        'app', 'db', 'redis', 'collabora', 'turn',
-        'cron', 'harp', 'nats', 'janus', 'signaling',
+        'app', 'cron', 'harp',
+    ];
+
+    /**
+     * Lista de containers globais (shared-services) introduzidos na
+     * arquitetura compartilhada (v11.0+). Não pertencem a nenhuma
+     * instância individual e são pré-requisito para qualquer
+     * `manage.sh create`.
+     */
+    const SHARED_CONTAINERS = [
+        'shared-db',
+        'shared-redis',
+        'shared-collabora',
+        'shared-turn',
+        'shared-nats',
+        'shared-janus',
+        'shared-signaling',
+        'shared-recording',
     ];
 
     /**
@@ -67,41 +91,88 @@ class Helper
     }
 
     /**
-     * Derivar o domínio do Collabora a partir do domínio principal
-     * Padrão do manage.sh: collabora-DOMAIN (ex: collabora-nextcloud.cliente.com.br)
+     * Hostnames globais dos serviços compartilhados expostos pelo
+     * Traefik (v11.0+). São informativos para mostrar ao cliente em
+     * "requisitos do servidor", mas o cliente NÃO precisa criar
+     * registros DNS para eles — eles já existem no provedor da Defensys.
      *
-     * @param string $domain Domínio principal do Nextcloud
-     * @return string Domínio do Collabora
+     * Os valores reais são lidos do servidor via SSH/configuração; os
+     * defaults aqui servem apenas como pista para o painel do admin.
+     */
+    const SHARED_HOSTNAMES_DEFAULT = [
+        'collabora' => 'collabora-01.defensys.seg.br',
+        'signaling' => 'signaling-01.defensys.seg.br',
+        'turn'      => 'turn-01.defensys.seg.br',
+    ];
+
+    /**
+     * Obter os hostnames globais dos serviços compartilhados.
+     *
+     * Permite override pelos parâmetros do produto WHMCS (configoption7..9)
+     * caso o servidor seja deployado com domínios diferentes.
+     *
+     * @param array $params Parâmetros do módulo WHMCS (opcional)
+     * @return array ['collabora'=>..., 'signaling'=>..., 'turn'=>...]
+     */
+    public static function getSharedHostnames(array $params = [])
+    {
+        $defaults = self::SHARED_HOSTNAMES_DEFAULT;
+        $cfg = self::getProductConfig($params);
+        if (!empty($cfg['collabora_hostname'])) {
+            $defaults['collabora'] = $cfg['collabora_hostname'];
+        }
+        if (!empty($cfg['signaling_hostname'])) {
+            $defaults['signaling'] = $cfg['signaling_hostname'];
+        }
+        if (!empty($cfg['turn_hostname'])) {
+            $defaults['turn'] = $cfg['turn_hostname'];
+        }
+        return $defaults;
+    }
+
+    /**
+     * @deprecated v3.0.0 — Removido pela arquitetura compartilhada.
+     *             O Collabora Online agora é um único serviço global
+     *             (`shared-collabora`) acessado via
+     *             `collabora-01.defensys.seg.br` (configurável). Mantido
+     *             apenas como stub para compatibilidade reversa de
+     *             qualquer hook/template antigo; retorna o hostname
+     *             global do Collabora.
      */
     public static function getCollaboraDomain($domain)
     {
-        return 'collabora-' . $domain;
+        return self::SHARED_HOSTNAMES_DEFAULT['collabora'];
     }
 
     /**
-     * Derivar o domínio do Signaling (HPB) a partir do domínio principal
-     * Padrão do manage.sh: signaling-DOMAIN (ex: signaling-nextcloud.cliente.com.br)
-     *
-     * @param string $domain Domínio principal do Nextcloud
-     * @return string Domínio do Signaling
+     * @deprecated v3.0.0 — Removido pela arquitetura compartilhada.
+     *             O Talk High-Performance Backend agora é um único
+     *             serviço global (`shared-signaling`) acessado via
+     *             `signaling-01.defensys.seg.br` (configurável).
+     *             Mantido como stub; retorna o hostname global.
      */
     public static function getSignalingDomain($domain)
     {
-        return 'signaling-' . $domain;
+        return self::SHARED_HOSTNAMES_DEFAULT['signaling'];
     }
 
     /**
-     * Obter os 3 domínios DNS necessários para uma instância
+     * Obter o(s) registro(s) DNS necessário(s) para uma instância de
+     * cliente.
      *
-     * @param string $domain Domínio principal
-     * @return array Lista dos 3 domínios
+     * A partir da v3.0.0 o módulo está alinhado ao Nextcloud SaaS
+     * Manager v11.x, que exige apenas **1 (um) registro A** por cliente
+     * apontando para o IP do servidor (o domínio principal do Nextcloud).
+     * Os antigos `collabora-` e `signaling-` deixaram de existir por
+     * cliente — agora são serviços globais compartilhados.
+     *
+     * @param string $domain Domínio principal do Nextcloud do cliente
+     * @return array Lista associativa de domínios obrigatórios
      */
     public static function getRequiredDomains($domain)
     {
         return [
-            'nextcloud'  => $domain,
-            'collabora'  => self::getCollaboraDomain($domain),
-            'signaling'  => self::getSignalingDomain($domain),
+            'nextcloud' => $domain,
         ];
     }
 
@@ -217,6 +288,11 @@ class Helper
             'enable_talk'       => isset($params['configoption4']) ? $params['configoption4'] : 'on',
             'ssh_key_path'      => isset($params['configoption5']) ? $params['configoption5'] : '',
             'client_prefix'     => isset($params['configoption6']) ? $params['configoption6'] : '',
+            // v3.0.0 — overrides opcionais dos hostnames globais (caso
+            // o servidor não use os defaults da Defensys).
+            'collabora_hostname' => isset($params['configoption7']) ? $params['configoption7'] : '',
+            'signaling_hostname' => isset($params['configoption8']) ? $params['configoption8'] : '',
+            'turn_hostname'      => isset($params['configoption9']) ? $params['configoption9'] : '',
         ];
     }
 
@@ -355,13 +431,23 @@ class Helper
     }
 
     /**
-     * Verificar se os 3 registros DNS de uma instância estão configurados corretamente.
+     * Verificar se o(s) registro(s) DNS necessário(s) para uma
+     * instância estão configurados corretamente.
      *
-     * Verifica se os domínios principal, collabora e signaling resolvem para o IP do servidor.
+     * A partir da v3.0.0 valida apenas o domínio principal do
+     * Nextcloud do cliente — os antigos `collabora-` e `signaling-`
+     * por cliente foram eliminados pela arquitetura compartilhada
+     * (manage.sh v11.x). O cliente só precisa apontar 1 registro A.
      *
-     * @param string $domain   Domínio principal da instância
-     * @param string $serverIp IP esperado do servidor
-     * @return array ['success' => bool, 'results' => [...], 'all_ok' => bool, 'message' => string]
+     * @param string $domain   Domínio principal da instância (do cliente)
+     * @param string $serverIp IP esperado do servidor (vem de `tblservers`)
+     * @return array {
+     *     @type bool   $success Sempre true (a função executou).
+     *     @type array  $results Por tipo de domínio: hostname, expected,
+     *                            resolved, correct.
+     *     @type bool   $all_ok  Se todos os domínios obrigatórios estão OK.
+     *     @type string $message Texto pronto para exibir/log.
+     * }
      */
     public static function checkDnsRecords($domain, $serverIp)
     {
@@ -409,21 +495,24 @@ class Helper
             }
         }
 
+        $total = count($domains);
         return [
             'success' => true,
             'results' => $results,
             'all_ok'  => $allOk,
             'message' => $allOk
-                ? 'Todos os 3 registros DNS estão corretos.'
+                ? sprintf('Registro DNS configurado corretamente (%d/%d).', $total, $total)
                 : 'DNS incompleto: ' . implode(' | ', $messages),
         ];
     }
 
     /**
-     * Obter os nomes dos 10 containers de uma instância
+     * Obter os nomes dos containers de uma instância (arquitetura
+     * compartilhada v11.x: 3 containers por cliente — `app`, `cron`,
+     * `harp`).
      *
      * @param string $clientName Nome do cliente
-     * @return array Lista de nomes de containers
+     * @return array Lista de nomes de containers indexada pelo sufixo
      */
     public static function getContainerNames($clientName)
     {
@@ -432,5 +521,16 @@ class Helper
             $containers[$suffix] = $clientName . '-' . $suffix;
         }
         return $containers;
+    }
+
+    /**
+     * Obter os nomes dos containers globais (shared-services) que
+     * precisam estar `Up` no servidor para qualquer instância funcionar.
+     *
+     * @return array Lista plana de nomes de containers
+     */
+    public static function getSharedContainerNames()
+    {
+        return self::SHARED_CONTAINERS;
     }
 }
