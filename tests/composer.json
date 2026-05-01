@@ -1,0 +1,18 @@
+{
+    "name": "defensystechbr/nextcloudsaas-whmcs-tests",
+    "description": "Suite de testes PHPUnit para o módulo Nextcloud-SaaS WHMCS.",
+    "type": "project",
+    "license": "proprietary",
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "NextcloudSaaS\\Tests\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

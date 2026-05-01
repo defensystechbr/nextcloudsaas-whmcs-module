@@ -814,6 +814,7 @@ function nextcloudsaas_AdminCustomButtonArray()
         'Verificar Estado'              => 'checkStatus',
         'Verificar DNS'                 => 'checkDns',
         'Serviços Compartilhados'       => 'checkSharedServices',
+        'Listar Instâncias do Servidor' => 'listAllInstances',
         'Reiniciar Instância'           => 'restartInstance',
         'Fazer Backup'                  => 'backupInstance',
         'Atualizar Instância'           => 'updateInstance',
@@ -821,6 +822,7 @@ function nextcloudsaas_AdminCustomButtonArray()
         'Testar API Nextcloud'          => 'testAPI',
         'Ver Credenciais'               => 'viewCredentials',
         'Ver Logs'                      => 'viewLogs',
+        'Ver Logs Talk Recording'       => 'viewRecordingLogs',
     ];
 }
 
@@ -1267,6 +1269,164 @@ function nextcloudsaas_viewLogs(array $params)
 
     } catch (\Exception $e) {
         return 'Exceção ao obter logs: ' . $e->getMessage();
+    }
+
+    return 'success';
+}
+
+/**
+ * Ver logs do serviço global de gravação de chamadas Talk (v3.1.0).
+ *
+ * Executa `docker logs --tail 100 shared-recording` no servidor e
+ * apresenta o resultado no painel admin.
+ *
+ * @param array $params
+ * @return string
+ */
+function nextcloudsaas_viewRecordingLogs(array $params)
+{
+    try {
+        $ssh = nextcloudsaas_getSSHManager($params);
+        $result = $ssh->executeCommand('docker logs --tail 100 shared-recording 2>&1');
+
+        Helper::log('viewRecordingLogs', [], $result);
+
+        if (!$result['success']) {
+            return 'Erro ao obter logs do shared-recording: ' . $result['error'];
+        }
+
+        $logs = trim($result['output']);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        $_SESSION['nextcloudsaas_panel'] = [
+            'type'      => 'logs',
+            'title'     => 'Logs: shared-recording (últimas 100 linhas) — gravação de chamadas Talk',
+            'content'   => !empty($logs) ? $logs : '(Sem logs disponíveis. Container shared-recording pode estar parado.)',
+            'serviceid' => $params['serviceid'],
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
+
+    } catch (\Exception $e) {
+        return 'Exceção ao obter logs Talk Recording: ' . $e->getMessage();
+    }
+
+    return 'success';
+}
+
+/**
+ * Listar todas as instâncias provisionadas no servidor (v3.1.0).
+ *
+ * Inspeciona `/opt/nextcloud-customers/` no servidor e gera um
+ * dashboard HTML consolidado com:
+ *   - Nome de cada instância.
+ *   - Estado dos 3 containers dedicados (`<cliente>-app|cron|harp`).
+ *   - Uso de disco (`du -sh`).
+ *   - Total de instâncias e total UP.
+ *
+ * Ótil para visualizar todo o servidor a partir de qualquer serviço
+ * WHMCS sem precisar abrir SSH.
+ *
+ * @param array $params
+ * @return string
+ */
+function nextcloudsaas_listAllInstances(array $params)
+{
+    try {
+        $ssh = nextcloudsaas_getSSHManager($params);
+
+        $basePath = !empty($params['serverhttpprefix']) || !empty($params['configoption1'])
+            ? '/opt/nextcloud-customers'
+            : '/opt/nextcloud-customers';
+
+        $listCmd = 'ls -1 ' . escapeshellarg($basePath) . ' 2>/dev/null';
+        $resList = $ssh->executeCommand($listCmd, 15);
+        if (!$resList['success']) {
+            return 'Erro ao listar instâncias em ' . $basePath . ': ' . ($resList['error'] ?? '');
+        }
+        $names = array_filter(
+            array_map('trim', preg_split('/\r?\n/', trim($resList['output']))),
+            function ($n) { return $n !== '' && strpos($n, '.') !== 0 && $n !== 'shared'; }
+        );
+
+        $psCmd = "docker ps -a --format '{{.Names}}|{{.Status}}' 2>/dev/null";
+        $resPs = $ssh->executeCommand($psCmd, 20);
+        $byName = [];
+        if ($resPs['success'] && !empty($resPs['output'])) {
+            foreach (preg_split('/\r?\n/', trim($resPs['output'])) as $line) {
+                if (strpos($line, '|') === false) { continue; }
+                list($n, $s) = explode('|', $line, 2);
+                $byName[trim($n)] = trim($s);
+            }
+        }
+
+        $rows = [];
+        $totalUp = 0;
+        foreach ($names as $name) {
+            $expected = ["$name-app", "$name-cron", "$name-harp"];
+            $up = 0;
+            $detail = [];
+            foreach ($expected as $cn) {
+                $st = $byName[$cn] ?? 'absent';
+                $isUp = (strpos($st, 'Up') === 0);
+                if ($isUp) { $up++; }
+                $detail[] = sprintf('%s=%s', str_replace($name . '-', '', $cn), $isUp ? 'UP' : 'DOWN');
+            }
+            $duCmd = 'du -sh ' . escapeshellarg($basePath . '/' . $name) . ' 2>/dev/null | cut -f1';
+            $duRes = $ssh->executeCommand($duCmd, 30);
+            $disk  = $duRes['success'] ? trim($duRes['output']) : 'N/A';
+
+            if ($up === 3) { $totalUp++; }
+            $rows[] = [
+                'name'   => $name,
+                'up'     => $up,
+                'total'  => 3,
+                'detail' => implode(' | ', $detail),
+                'disk'   => $disk,
+            ];
+        }
+
+        $totalInstances = count($rows);
+        $headerColor = ($totalInstances > 0 && $totalUp === $totalInstances) ? '#27ae60' : '#e67e22';
+        $html  = '<div style="margin:6px 0 10px;">'
+               . '<span style="background:' . $headerColor . ';color:#fff;padding:4px 12px;border-radius:3px;font-size:12px;">'
+               . 'TOTAL: ' . $totalInstances . ' instâncias · ' . $totalUp . ' totalmente UP'
+               . '</span></div>';
+
+        $html .= '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+               . '<tr style="background:#f5f5f5;">'
+               . '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Instância</th>'
+               . '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Containers</th>'
+               . '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Detalhe</th>'
+               . '<th style="padding:6px 10px;text-align:left;border:1px solid #ddd;">Disco</th>'
+               . '</tr>';
+        foreach ($rows as $r) {
+            $color = ($r['up'] === $r['total']) ? '#27ae60' : ($r['up'] > 0 ? '#e67e22' : '#e74c3c');
+            $html .= '<tr>'
+                  . '<td style="padding:6px 10px;border:1px solid #ddd;"><code>' . htmlspecialchars($r['name']) . '</code></td>'
+                  . '<td style="padding:6px 10px;border:1px solid #ddd;color:' . $color . ';font-weight:bold;">' . $r['up'] . '/' . $r['total'] . '</td>'
+                  . '<td style="padding:6px 10px;border:1px solid #ddd;">' . htmlspecialchars($r['detail']) . '</td>'
+                  . '<td style="padding:6px 10px;border:1px solid #ddd;">' . htmlspecialchars($r['disk']) . '</td>'
+                  . '</tr>';
+        }
+        $html .= '</table>';
+
+        Helper::log('listAllInstances', ['count' => $totalInstances]);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+        $_SESSION['nextcloudsaas_panel'] = [
+            'type'      => 'instances_dashboard',
+            'title'     => 'Instâncias Nextcloud no Servidor',
+            'content'   => $html,
+            'serviceid' => $params['serviceid'],
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
+
+    } catch (\Exception $e) {
+        return 'Exceção ao listar instâncias: ' . $e->getMessage();
     }
 
     return 'success';
