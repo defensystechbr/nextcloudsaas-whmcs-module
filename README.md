@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v3.1.2
+# Módulo Nextcloud-SaaS para WHMCS v3.1.3
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 3.1.2  
+**Versão:** 3.1.3  
 **Licença:** Proprietária  
 **Compatível com:** Nextcloud SaaS Manager **v11.x** (`manage.sh` v11.3+)
 
@@ -234,6 +234,10 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v3.1.3 (2026-05-04):** Cleanup UX no painel do cliente e no e-mail de provisionamento.
+    -   Painel do cliente (`clientarea.tpl`): removidas as seções de **Collabora Online**, **Banco de Dados (MariaDB)**, **TURN Server** e **Signaling Server** — serviços globais (`shared-*`) na arquitetura v11.x deixaram de ser do assinante e não devem aparecer no painel dele. **HaRP (AppAPI)** continua, pois é dedicada por cliente.
+    -   Painel do cliente: removido o lembrete *"Os serviços auxiliares Collabora Online / Talk HPB são publicados em domínios globais e não exigem configuração DNS de sua parte"* logo abaixo da tabela de DNS.
+    -   E-mail de provisionamento (`nextcloudsaas_hooks.php`): removidas as linhas Collabora Online / Talk (HPB) do bloco *"Serviços Incluídos"* e o lembrete equivalente do bloco *"Registro DNS configurado"*.
 -   **v3.1.2 (2026-05-04):** Hotfix de UX para pedidos criados pelo admin.
     -   Resolve a falha **“Domínio inválido ou não fornecido”** que ocorria em pedidos criados via **Orders > Add New Order** (o WHMCS não dispara `AfterShoppingCartCheckout` nesse fluxo).
     -   Novo `Helper::getDomain($params)` resolve o domínio em qualquer fluxo: `$params['domain']` → `$params['customfields']` (com/sem acento, em PT/EN) → consulta direta a `tblcustomfieldsvalues` por `serviceid`/`pid`.
