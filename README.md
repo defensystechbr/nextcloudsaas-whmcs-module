@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v3.1.0
+# Módulo Nextcloud-SaaS para WHMCS v3.1.1
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 3.1.0  
+**Versão:** 3.1.1  
 **Licença:** Proprietária  
 **Compatível com:** Nextcloud SaaS Manager **v11.x** (`manage.sh` v11.3+)
 
@@ -62,6 +62,11 @@ O Traefik continua a detetar automaticamente o domínio do cliente e a provision
     ```
     defensys ALL=(ALL) NOPASSWD: ALL
     ```
+-   **Autenticação SSH habilitada para o utilizador.** Imagens cloud do Ubuntu (24.04+) vêm, por padrão, com o ficheiro `/etc/ssh/sshd_config.d/60-cloudimg-settings.conf` definindo `PasswordAuthentication no`. Se o WHMCS for autenticar por senha, edite esse ficheiro e altere para `PasswordAuthentication yes`, ou configure autenticação por chave SSH (vide `configoption5`). Sem isso, o `Test Connection` falhará com **"Connection closed by server"** e o módulo a partir da v3.1.1 mostrará essa dica diretamente. Após alterar, executar:
+    ```bash
+    sudo systemctl reload ssh
+    ```
+-   **Porta SSH conhecida pelo WHMCS.** No WHMCS → `Server Details`, marque **Override with Custom Port** e preencha **22** (ou a porta usada pelo seu sshd). A v3.1.1 do módulo já assume `22` como fallback se o WHMCS enviar `0`/vazio.
 
 ### 2.2. Instalação do Módulo
 
@@ -211,6 +216,10 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v3.1.1 (2026-05-04):** Hotfix de UX no provisionamento inicial.
+    -   `SSHManager`: porta `22` agora é fallback robusto sempre que o WHMCS passa `0`, vazio ou um valor fora do intervalo `1–65535` (mesmo se o admin esquecer de marcar **Override with Custom Port**).
+    -   `SSHManager::testConnection()`: mensagem de erro enriquecida com **dicas específicas** baseadas no sintoma (`Connection closed by server` → sugere ajustar `PasswordAuthentication`; `authentication failed` → sugere checar credenciais; `timeout` → sugere checar firewall). Resolve a pegadinha típica do Ubuntu cloud (`60-cloudimg-settings.conf` definindo `PasswordAuthentication no`).
+    -   README §2.1: novos pré-requisitos documentados (`PasswordAuthentication yes` ou chave SSH; **Override with Custom Port = 22**).
 -   **v3.1.0 (2026-05-01):**
     -   Novo botão admin **“Listar Instâncias do Servidor”** (`listAllInstances`): dashboard HTML consolidado com todas as instâncias provisionadas no servidor, estado dos 3 containers dedicados (`app`, `cron`, `harp`) e uso de disco por instância.
     -   Novo botão admin **“Ver Logs Talk Recording”** (`viewRecordingLogs`): mostra `docker logs --tail 100 shared-recording` no painel admin.

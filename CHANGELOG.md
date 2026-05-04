@@ -2,6 +2,15 @@
 
 Todas as mudanças notáveis deste módulo seguem [Keep a Changelog](https://keepachangelog.com/pt-BR/) e [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## v3.1.1 (2026-05-04)
+
+### Corrigido
+- `SSHManager`: a porta `22` agora é fallback robusto sempre que o WHMCS envia `0`, string vazia ou um valor fora do intervalo `1–65535`. Antes, o admin precisava marcar **"Override with Custom Port"** com `22` manualmente.
+- `SSHManager::testConnection()`: mensagem de erro passou a incluir **dicas específicas** baseadas no sintoma. Quando ocorre o clássico `Connection closed by server` (causado pelo padrão `PasswordAuthentication no` em `/etc/ssh/sshd_config.d/60-cloudimg-settings.conf` das imagens cloud do Ubuntu 24.04+), o módulo agora indica exatamente o ficheiro a editar e o `systemctl reload ssh` necessário. Também há dicas para `authentication failed` (credenciais) e `timeout` (firewall).
+
+### Documentado
+- README §2.1 (Pré-requisitos do Servidor): exigência explícita de `PasswordAuthentication yes` (ou autenticação por chave SSH) e da configuração **Override with Custom Port = 22** no WHMCS.
+
 ## v3.1.0 (2026-05-01)
 
 ### Adicionado
