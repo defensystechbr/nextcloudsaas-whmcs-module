@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v3.1.3
+# Módulo Nextcloud-SaaS para WHMCS v3.1.4
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 3.1.3  
+**Versão:** 3.1.4  
 **Licença:** Proprietária  
 **Compatível com:** Nextcloud SaaS Manager **v11.x** (`manage.sh` v11.3+)
 
@@ -233,6 +233,10 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 ---
 
 ## 4. Changelog
+
+-   **v3.1.4 (2026-05-04):** Cleanup UX na **Admin Service Tab**.
+    -   Removidos os campos **URL do Collabora**, **URL do Signaling** e as duas linhas extras (`collabora-01.defensys.seg.br`, `signaling-01.defensys.seg.br`) do campo **DNS Necessários**. Agora apenas o domínio do cliente é listado, no novo rótulo **DNS Necessário (Registro A)**.
+    -   **Estado da Instância** passa a contar **3 containers dedicados** (`<cliente>-app`, `<cliente>-cron`, `<cliente>-harp`) em vez de 10. Para o estado dos serviços globais (`shared-*`), use o botão **Serviços Compartilhados** disponível desde a v3.0.0.
 
 -   **v3.1.3 (2026-05-04):** Cleanup UX no painel do cliente e no e-mail de provisionamento.
     -   Painel do cliente (`clientarea.tpl`): removidas as seções de **Collabora Online**, **Banco de Dados (MariaDB)**, **TURN Server** e **Signaling Server** — serviços globais (`shared-*`) na arquitetura v11.x deixaram de ser do assinante e não devem aparecer no painel dele. **HaRP (AppAPI)** continua, pois é dedicada por cliente.

@@ -2,6 +2,14 @@
 
 Todas as mudanças notáveis deste módulo seguem [Keep a Changelog](https://keepachangelog.com/pt-BR/) e [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## v3.1.4 (2026-05-04)
+
+### Removido
+- **Admin Service Tab (`nextcloudsaas_AdminServicesTabFields`):** removidos os campos **URL do Collabora**, **URL do Signaling** e as duas linhas extras (`collabora-01.defensys.seg.br`, `signaling-01.defensys.seg.br`) do campo **DNS Necessários**. Apenas o domínio principal do cliente passa a aparecer no campo, agora rotulado como **DNS Necessário (Registro A)**, em consonância com o painel do assinante (já limpo na v3.1.3) e com a arquitetura compartilhada do manager v11.x.
+
+### Corrigido
+- **Estado da Instância:** a contagem agora considera **3 containers dedicados** (`<cliente>-app`, `<cliente>-cron`, `<cliente>-harp`) em vez de 10. A rótulo passa a indicar *"Ativo (3/3 containers dedicados)"*. Para verificar o estado dos serviços globais (`shared-*`) continue usando o botão **Serviços Compartilhados** (já disponível desde a v3.0.0).
+
 ## v3.1.3 (2026-05-04)
 
 ### Removido
