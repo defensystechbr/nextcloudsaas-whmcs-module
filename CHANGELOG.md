@@ -2,6 +2,20 @@
 
 Todas as mudanças notáveis deste módulo seguem [Keep a Changelog](https://keepachangelog.com/pt-BR/) e [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## v3.1.2 (2026-05-04)
+
+### Corrigido
+- `nextcloudsaas_CreateAccount`: domínio agora é obtido via novo `Helper::getDomain($params)`, que prioriza `$params['domain']` mas faz fallback para `$params['customfields']` (chaves com/sem acento, em PT/EN) e, em último recurso, consulta diretamente `tblcustomfieldsvalues` pelo `serviceid`/`pid`. Resolve a falha **"Domínio inválido ou não fornecido"** em pedidos criados pelo admin via **Orders > Add New Order** (fluxo no qual o hook `AfterShoppingCartCheckout` não dispara).
+- Mensagens de erro do `CreateAccount` agora distinguem **(a)** Custom Field ausente no produto, **(b)** Custom Field existente porém vazio no serviço, e **(c)** domínio com formato inválido — com instruções claras de onde corrigir.
+- `tblhosting.domain` é sincronizado de forma idempotente quando o módulo recupera o domínio via fallback (corrige a tabela para que `ChangePassword`, `ChangePackage` e SSO funcionem nos pedidos do admin).
+
+### Adicionado
+- Hook `AcceptOrder` em `includes/hooks/nextcloudsaas_hooks.php`: espelha `AfterShoppingCartCheckout` para pedidos criados pelo admin. Ao aceitar um pedido, o valor do Custom Field **"Domínio da Instância"** é copiado para `tblhosting.domain` e `username` é definido como `admin`.
+- `Helper::getDomain(array $params): string` — nova API pública e testada para resolver domínio em qualquer fluxo.
+
+### Documentado
+- README §2.4.1 **Custom Fields obrigatórios**: detalha o **Campo 0 “Domínio da Instância”** (Field Type, Validation regex, Required, Show on Order Form) e inclui nota explícita sobre como preencher o campo em pedidos criados pelo admin **antes** de clicar **Accept Order**.
+
 ## v3.1.1 (2026-05-04)
 
 ### Corrigido

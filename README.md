@@ -1,7 +1,7 @@
-# Módulo Nextcloud-SaaS para WHMCS v3.1.1
+# Módulo Nextcloud-SaaS para WHMCS v3.1.2
 
 **Autor:** Defensys / Manus AI  
-**Versão:** 3.1.1  
+**Versão:** 3.1.2  
 **Licença:** Proprietária  
 **Compatível com:** Nextcloud SaaS Manager **v11.x** (`manage.sh` v11.3+)
 
@@ -118,7 +118,25 @@ O Traefik continua a detetar automaticamente o domínio do cliente e a provision
     | **Caminho da Chave SSH**        | **Opcional.** Se preferir usar autenticação por chave, insira o caminho absoluto para a chave privada no servidor WHMCS. Deixe em branco para usar a password do servidor. |
     | **Prefixo do Nome do Cliente**  | **Opcional.** Adiciona um prefixo ao nome do cliente usado pelo `manage.sh` (ex: `nc-`). Útil para organização. |
 
-5.  Na aba **Custom Fields**, crie os 4 campos abaixo. Os nomes devem ser **exatos**.
+5.  Na aba **Custom Fields**, crie os 5 campos abaixo. Os nomes devem ser **exatos** (com acentos).
+
+#### 2.4.1. Custom Fields obrigatórios
+
+O módulo lê o domínio da instância a partir do Custom Field **"Domínio da Instância"**. Sem ele, `nextcloudsaas_CreateAccount` aborta com a mensagem `"Domínio não fornecido"`. O hook `AfterShoppingCartCheckout` (carrinho do cliente) e o hook `AcceptOrder` (pedido criado pelo admin em **Orders > Add New Order**) copiam automaticamente o valor desse campo para `tblhosting.domain` antes do provisionamento. **É obrigatório criar este Custom Field para que o módulo funcione.**
+
+**Campo 0: Domínio da Instância (obrigatório)**
+- **Field Name:** `Domínio da Instância`
+- **Field Type:** Text Box
+- **Description:** `Domínio onde o Nextcloud será publicado (ex.: nextcloud.suaempresa.com.br). Você precisa criar um registro DNS A apontando este domínio para o IP do nosso servidor.`
+- **Validation:** `/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i`
+- **Select Options:** (deixar vazio)
+- **Display Order:** `0`
+- **Admin Only:** Desmarcado
+- **Required Field:** **Marcado**
+- **Show on Order Form:** **Marcado**
+- **Show on Invoice:** Desmarcado
+
+> **Nota para pedidos criados pelo admin:** o WHMCS não exibe o Custom Field na tela `Orders > Add New Order`. Após criar o pedido, **antes** de clicar em **Accept Order**, abra o serviço em **Clients > View/Search Clients > [cliente] > Products/Services > Custom Fields** e preencha o **Domínio da Instância**. O hook `AcceptOrder` (v3.1.2+) copiará o valor para `tblhosting.domain` no momento em que você aceitar o pedido.
 
 **Campo 1: Client Name**
 - **Field Name:** `Client Name`
@@ -216,6 +234,12 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v3.1.2 (2026-05-04):** Hotfix de UX para pedidos criados pelo admin.
+    -   Resolve a falha **“Domínio inválido ou não fornecido”** que ocorria em pedidos criados via **Orders > Add New Order** (o WHMCS não dispara `AfterShoppingCartCheckout` nesse fluxo).
+    -   Novo `Helper::getDomain($params)` resolve o domínio em qualquer fluxo: `$params['domain']` → `$params['customfields']` (com/sem acento, em PT/EN) → consulta direta a `tblcustomfieldsvalues` por `serviceid`/`pid`.
+    -   Novo hook `AcceptOrder` espelha `AfterShoppingCartCheckout` e copia o Custom Field **“Domínio da Instância”** para `tblhosting.domain` quando o admin aceita o pedido.
+    -   `nextcloudsaas_CreateAccount`: mensagens de erro específicas para Custom Field ausente, vazio ou domínio inválido, com instruções de onde corrigir.
+    -   README §2.4.1: nova subseção **Custom Fields obrigatórios** detalhando o **Campo 0 “Domínio da Instância”** (regex de validação, Required, Show on Order Form) e o passo extra para pedidos do admin.
 -   **v3.1.1 (2026-05-04):** Hotfix de UX no provisionamento inicial.
     -   `SSHManager`: porta `22` agora é fallback robusto sempre que o WHMCS passa `0`, vazio ou um valor fora do intervalo `1–65535` (mesmo se o admin esquecer de marcar **Override with Custom Port**).
     -   `SSHManager::testConnection()`: mensagem de erro enriquecida com **dicas específicas** baseadas no sintoma (`Connection closed by server` → sugere ajustar `PasswordAuthentication`; `authentication failed` → sugere checar credenciais; `timeout` → sugere checar firewall). Resolve a pegadinha típica do Ubuntu cloud (`60-cloudimg-settings.conf` definindo `PasswordAuthentication no`).
