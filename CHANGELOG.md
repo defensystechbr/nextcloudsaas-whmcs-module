@@ -2,6 +2,13 @@
 
 Todas as mudanças notáveis deste módulo seguem [Keep a Changelog](https://keepachangelog.com/pt-BR/) e [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## v3.1.3 (2026-05-04)
+
+### Removido
+- **Painel da área do cliente (`clientarea.tpl`):** removidas as seções **Collabora Online**, **Banco de Dados (MariaDB)**, **TURN Server** e **Signaling Server** do bloco de credenciais. Esses serviços passaram a ser globais (`shared-*`) na arquitetura v11.x do manager e não pertencem mais ao assinante; expor URLs/secrets confundia o cliente. A seção **HaRP (AppAPI)** continua exposta porque é dedicada por cliente (`<cliente>-harp`).
+- **Painel da área do cliente:** removido o lembrete *"Os serviços auxiliares Collabora Online (...) e Talk HPB (...) são publicados em domínios globais da Defensys e não exigem nenhuma configuração DNS de sua parte"* logo abaixo da tabela de DNS — era útil na transição v2.x → v3.0.0, agora só polui a tela.
+- **E-mail de provisionamento (`nextcloudsaas_hooks.php`):** removidas as linhas Collabora Online / Talk (HPB) do bloco *"Serviços Incluídos"* e o mesmo lembrete sobre domínios globais no bloco *"Registro DNS configurado"*.
+
 ## v3.1.2 (2026-05-04)
 
 ### Corrigido

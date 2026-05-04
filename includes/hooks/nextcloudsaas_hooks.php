@@ -1071,26 +1071,6 @@ function nextcloudsaas_buildProvisioningEmailHtml($clientName, $domain, $usernam
             </table>
         </div>
 
-        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 15px; margin: 15px 0;">
-            <h3 style="color: #1b6a37; margin-top: 0; border-bottom: 2px solid #1b6a37; padding-bottom: 8px;">
-                Serviços Incluídos
-            </h3>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                    <td style="padding: 8px 0; font-weight: bold; width: 140px;">Nextcloud:</td>
-                    <td style="padding: 8px 0;"><a href="https://' . $e($domain) . '" style="color: #0082c9;">https://' . $e($domain) . '</a></td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px 0; font-weight: bold;">Collabora Online:</td>
-                    <td style="padding: 8px 0;"><a href="https://' . $e($collaboraDomain) . '" style="color: #0082c9;">https://' . $e($collaboraDomain) . '</a></td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px 0; font-weight: bold;">Talk (HPB):</td>
-                    <td style="padding: 8px 0;"><a href="https://' . $e($signalingDomain) . '" style="color: #0082c9;">https://' . $e($signalingDomain) . '</a></td>
-                </tr>
-            </table>
-        </div>
-
         <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px; margin: 15px 0;">
             <strong>Importante:</strong> Recomendamos que você altere a senha padrão no primeiro acesso.
             Acesse <em>Configurações &gt; Segurança</em> no painel do Nextcloud.
@@ -1100,8 +1080,6 @@ function nextcloudsaas_buildProvisioningEmailHtml($clientName, $domain, $usernam
             <strong>Registro DNS configurado:</strong><br>
             O seguinte registro DNS está apontando corretamente para o servidor (<code>' . $e($serverIp) . '</code>):<br>
             <code>' . $e($domain) . '</code>
-            <br><br>
-            <small><em>Os serviços auxiliares <strong>Collabora Online</strong> (<code>' . $e($collaboraDomain) . '</code>) e <strong>Talk HPB</strong> (<code>' . $e($signalingDomain) . '</code>) estão publicados em domínios globais da Defensys e não exigem configuração DNS de sua parte.</em></small>
         </div>
 
         <p style="color: #666; font-size: 0.9em; margin-top: 20px;">
