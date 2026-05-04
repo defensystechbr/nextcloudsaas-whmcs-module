@@ -100,7 +100,9 @@ class SSHManager
         $basePath = '/opt/nextcloud-customers'
     ) {
         $this->host = $host;
-        $this->port = $port;
+        // Garante porta válida (1–65535) mesmo que WHMCS passe 0/'' / valor inválido.
+        $portInt = (int)$port;
+        $this->port = ($portInt >= 1 && $portInt <= 65535) ? $portInt : 22;
         $this->username = $username;
         $this->password = $password;
         $this->privateKeyPath = $privateKeyPath;
@@ -128,7 +130,7 @@ class SSHManager
             $server['username'],
             $server['password'],
             !empty($product['ssh_key_path']) ? $product['ssh_key_path'] : $server['accesshash'],
-            $server['port'] > 0 ? $server['port'] : 22,
+            (isset($server['port']) && (int)$server['port'] >= 1 && (int)$server['port'] <= 65535) ? (int)$server['port'] : 22,
             '',
             300,
             '/opt/nextcloud-customers'
@@ -890,7 +892,7 @@ class SSHManager
      *
      * @return array Resultado do teste
      */
-    public function testConnection()
+public function testConnection()
     {
         $result = $this->executeCommand('echo "SSH_CONNECTION_OK" && hostname && uptime', 15);
 
@@ -902,9 +904,30 @@ class SSHManager
             ];
         }
 
+        // v3.1.1 — enriquecer mensagem de erro com sugestões úteis quando o
+        // sintoma for o clássico "Connection closed by server" do phpseclib3,
+        // que normalmente indica `PasswordAuthentication no` no sshd_config.
+        $errorRaw = isset($result['error']) ? (string)$result['error'] : '';
+        $hint = '';
+        if (stripos($errorRaw, 'Connection closed') !== false
+            || stripos($errorRaw, 'closed by server') !== false
+            || stripos($errorRaw, 'no supported authentication methods') !== false) {
+            $hint = "\n\nDica: este erro normalmente indica que o servidor SSH não aceita autenticação por password.\n"
+                  . "Confirme no servidor:\n"
+                  . "  - /etc/ssh/sshd_config.d/60-cloudimg-settings.conf  (Ubuntu cloud)\n"
+                  . "  - /etc/ssh/sshd_config\n"
+                  . "e garanta 'PasswordAuthentication yes' (ou configure autenticação por chave SSH).\n"
+                  . "Após alterar: sudo systemctl reload ssh";
+        } elseif (stripos($errorRaw, 'authentica') !== false) {
+            $hint = "\n\nDica: o servidor aceitou a conexão mas rejeitou as credenciais.\n"
+                  . "Verifique o utilizador/password no WHMCS ou o caminho da chave SSH.";
+        } elseif (stripos($errorRaw, 'timed out') !== false || stripos($errorRaw, 'timeout') !== false) {
+            $hint = "\n\nDica: timeout de conexão. Verifique se a porta {$this->port} está aberta no firewall do servidor.";
+        }
+
         return [
             'success' => false,
-            'message' => "Falha na conexão SSH com {$this->host}: " . $result['error'],
+            'message' => "Falha na conexão SSH com {$this->host}:{$this->port}: " . $errorRaw . $hint,
         ];
     }
 
