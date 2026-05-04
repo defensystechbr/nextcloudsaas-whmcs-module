@@ -1696,25 +1696,24 @@ function nextcloudsaas_AdminServicesTabFields(array $params)
         $clientName = nextcloudsaas_getClientName($params);
 
         if (!empty($domain)) {
-            $collaboraDomain = Helper::getCollaboraDomain($domain);
-            $signalingDomain = Helper::getSignalingDomain($domain);
+            // v3.1.4 — Arquitetura compartilhada (manager v11.x):
+            // Collabora/Signaling/TURN agora rodam como serviços globais
+            // (`shared-*`) em hostnames próprios da Defensys e não exigem
+            // DNS por cliente. Os campos URL do Collabora / URL do Signaling
+            // / linhas extras de DNS Necessários deixaram de fazer sentido
+            // na Admin Service Tab e foram removidos.
 
             $fields['Nome da Instância'] = '<strong>' . htmlspecialchars($clientName) . '</strong>';
 
             $fields['URL do Nextcloud'] = '<a href="https://' . htmlspecialchars($domain)
                 . '" target="_blank">https://' . htmlspecialchars($domain) . '</a>';
 
-            $fields['URL do Collabora'] = '<a href="https://' . htmlspecialchars($collaboraDomain)
-                . '" target="_blank">https://' . htmlspecialchars($collaboraDomain) . '</a>';
+            $fields['DNS Necessário (Registro A)'] = '<code>' . htmlspecialchars($domain) . '</code>';
 
-            $fields['URL do Signaling'] = '<a href="https://' . htmlspecialchars($signalingDomain)
-                . '" target="_blank">https://' . htmlspecialchars($signalingDomain) . '</a>';
-
-            $fields['DNS Necessários'] = '<code>' . htmlspecialchars($domain) . '</code><br>'
-                . '<code>' . htmlspecialchars($collaboraDomain) . '</code><br>'
-                . '<code>' . htmlspecialchars($signalingDomain) . '</code>';
-
-            // Tentar obter estado dos containers
+            // Tentar obter estado dos containers (3 containers dedicados por
+            // cliente na arquitetura v3.0.0+: <cliente>-app, <cliente>-cron,
+            // <cliente>-harp). Os 8 serviços globais shared-* não entram
+            // nessa contagem porque são compartilhados.
             try {
                 $ssh = nextcloudsaas_getSSHManager($params);
                 $statusResult = $ssh->statusInstance($clientName);
@@ -1723,14 +1722,14 @@ function nextcloudsaas_AdminServicesTabFields(array $params)
                     $output = $statusResult['output'];
                     // Contar containers running
                     $runningCount = substr_count(strtolower($output), 'running');
-                    $totalContainers = 10;
+                    $totalContainers = 3;
 
                     if ($runningCount >= $totalContainers) {
                         $statusHtml = '<span style="color:green;font-weight:bold;">Ativo ('
-                            . $runningCount . '/' . $totalContainers . ' containers)</span>';
+                            . $runningCount . '/' . $totalContainers . ' containers dedicados)</span>';
                     } elseif ($runningCount > 0) {
                         $statusHtml = '<span style="color:orange;font-weight:bold;">Parcial ('
-                            . $runningCount . '/' . $totalContainers . ' containers)</span>';
+                            . $runningCount . '/' . $totalContainers . ' containers dedicados)</span>';
                     } else {
                         $statusHtml = '<span style="color:red;font-weight:bold;">Parado</span>';
                     }
