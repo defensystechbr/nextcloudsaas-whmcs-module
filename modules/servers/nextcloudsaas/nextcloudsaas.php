@@ -244,12 +244,45 @@ function nextcloudsaas_getClientName($params)
 function nextcloudsaas_CreateAccount(array $params)
 {
     try {
-        $domain = isset($params['domain']) ? trim($params['domain']) : '';
+        // v3.1.2: usar Helper::getDomain para suportar também pedidos
+        // criados pelo admin ("Add New Order"), nos quais $params['domain']
+        // pode estar vazio porque o hook AfterShoppingCartCheckout não
+        // disparou. O Helper lê $params['customfields'] e, em último
+        // recurso, consulta tblcustomfieldsvalues diretamente.
+        $domain = Helper::getDomain($params);
         $productConfig = Helper::getProductConfig($params);
 
-        // Validar domínio
-        if (empty($domain) || !Helper::isValidDomain($domain)) {
-            return "Domínio inválido ou não fornecido: {$domain}";
+        // Validar domínio com mensagens específicas (v3.1.2)
+        if (empty($domain)) {
+            $hasCustomFields = !empty($params['customfields']) && is_array($params['customfields']);
+            $hint = $hasCustomFields
+                ? "O serviço não tem o Custom Field 'Domínio da Instância' preenchido. "
+                . "Edite o serviço em Products/Services > Custom Fields e informe o domínio (ex.: nextcloud.cliente.com.br)."
+                : "O produto WHMCS não tem o Custom Field 'Domínio da Instância' configurado. "
+                . "Crie-o em Setup > Products/Services > <produto> > Custom Fields (Field Type: Text Box, Required: yes). "
+                . "Veja o README §2.4.1.";
+            return "Domínio não fornecido. " . $hint;
+        }
+        if (!Helper::isValidDomain($domain)) {
+            return "Domínio inválido: '{$domain}'. Formato esperado: nome.exemplo.com (apenas a-z, 0-9, hífens e pontos).";
+        }
+
+        // Garantir que tblhosting.domain tenha o valor (importante para
+        // ChangePassword/ChangePackage/SSO posteriores). Esta sincronização
+        // é idempotente — só atualiza se o domain estiver vazio na tabela.
+        if (empty($params['domain'])
+            && !empty($params['serviceid'])
+            && class_exists('\\WHMCS\\Database\\Capsule')) {
+            try {
+                \WHMCS\Database\Capsule::table('tblhosting')
+                    ->where('id', (int)$params['serviceid'])
+                    ->where(function ($q) {
+                        $q->whereNull('domain')->orWhere('domain', '');
+                    })
+                    ->update(['domain' => $domain]);
+            } catch (\Throwable $e) {
+                // não-fatal
+            }
         }
 
         // Verificar DNS antes de provisionar

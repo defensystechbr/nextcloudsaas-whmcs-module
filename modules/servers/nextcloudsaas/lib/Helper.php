@@ -91,6 +91,102 @@ class Helper
     }
 
     /**
+     * Obter o domínio efetivo da instância para o serviço atual.
+     *
+     * Estratégia (v3.1.2):
+     *  1. `$params['domain']` (campo padrão do WHMCS, populado pelo hook
+     *     AfterShoppingCartCheckout no fluxo de carrinho).
+     *  2. Fallback: percorre `$params['customfields']` procurando chaves
+     *     comuns (com e sem acento, em PT/EN). Útil quando o pedido foi
+     *     criado pelo admin via "Add New Order" — fluxo no qual o hook
+     *     AfterShoppingCartCheckout não dispara, e portanto o domain
+     *     não é copiado automaticamente para tblhosting.domain.
+     *  3. Fallback final: consulta direta a tblcustomfields/tblcustomfieldsvalues
+     *     pelo `serviceid`/`relid` quando disponível.
+     *
+     * Devolve string vazia caso nada seja encontrado, deixando que o
+     * chamador (ex.: CreateAccount) emita uma mensagem de erro específica.
+     *
+     * @param array $params Pâros padrão do módulo WHMCS (services/nextcloudsaas)
+     * @return string Domínio em minúsculas e sem prefixos http(s):// ou trailing slash
+     */
+    public static function getDomain(array $params)
+    {
+        $clean = function ($v) {
+            $v = strtolower(trim((string)$v));
+            $v = preg_replace('#^https?://#', '', $v);
+            $v = preg_replace('#^www\.#', '', $v);
+            $v = rtrim($v, '/');
+            return $v;
+        };
+
+        // 1. Campo padrão do WHMCS
+        if (!empty($params['domain'])) {
+            return $clean($params['domain']);
+        }
+
+        // 2. Custom fields no array de params
+        $candidateKeys = [
+            'Domínio da Instância',
+            'Dominio da Instancia',
+            'Domínio',
+            'Dominio',
+            'Domain',
+            'Hostname',
+            'Instance Domain',
+        ];
+        if (!empty($params['customfields']) && is_array($params['customfields'])) {
+            foreach ($candidateKeys as $key) {
+                if (!empty($params['customfields'][$key])) {
+                    return $clean($params['customfields'][$key]);
+                }
+            }
+            // Fuzzy match: qualquer chave que contenha "dom" e "inst".
+            foreach ($params['customfields'] as $name => $value) {
+                if (empty($value)) {
+                    continue;
+                }
+                $lc = strtolower((string)$name);
+                if (strpos($lc, 'dom') !== false && strpos($lc, 'inst') !== false) {
+                    return $clean($value);
+                }
+            }
+        }
+
+        // 3. Consulta direta ao banco (último recurso) — útil quando
+        // o pedido foi criado pelo admin e o WHMCS não populou customfields.
+        $serviceId = isset($params['serviceid']) ? (int)$params['serviceid'] : 0;
+        $productId = isset($params['pid']) ? (int)$params['pid'] : 0;
+        if ($serviceId > 0 && $productId > 0 && class_exists('\\WHMCS\\Database\\Capsule')) {
+            try {
+                $rows = \WHMCS\Database\Capsule::table('tblcustomfields')
+                    ->where('relid', $productId)
+                    ->where('type', 'product')
+                    ->get(['id', 'fieldname']);
+                foreach ($rows as $row) {
+                    $fname = strtolower((string)$row->fieldname);
+                    $matches = strpos($fname, 'dom') !== false
+                        && (strpos($fname, 'inst') !== false || strpos($fname, 'host') !== false || $fname === 'domain' || $fname === 'domínio' || $fname === 'dominio');
+                    if (!$matches) {
+                        continue;
+                    }
+                    $val = \WHMCS\Database\Capsule::table('tblcustomfieldsvalues')
+                        ->where('fieldid', $row->id)
+                        ->where('relid', $serviceId)
+                        ->value('value');
+                    if (!empty($val)) {
+                        return $clean($val);
+                    }
+                }
+            } catch (\Throwable $e) {
+                // silencioso: estamos numa rota de fallback.
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Hostnames globais dos serviços compartilhados expostos pelo
      * Traefik (v11.0+). São informativos para mostrar ao cliente em
      * "requisitos do servidor", mas o cliente NÃO precisa criar

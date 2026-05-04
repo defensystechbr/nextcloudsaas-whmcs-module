@@ -28,10 +28,12 @@
             "v3.1.0 — Botão admin 'Listar Instâncias do Servidor' (dashboard de todas as instâncias)",
             "v3.1.0 — Botão admin 'Ver Logs Talk Recording' (docker logs shared-recording)",
             "v3.1.0 — CI/CD GitHub Actions (lint PHP em PR; release automático no push de tag vX.Y.Z)",
-            "v3.1.0 — Suite PHPUnit inicial validando contrato Helper (1 DNS, 3 containers, 8 shared-services)"
+            "v3.1.0 — Suite PHPUnit inicial validando contrato Helper (1 DNS, 3 containers, 8 shared-services)",
+            "v3.1.1 — Hotfix: porta 22 como fallback robusto + mensagem de erro inteligente no Test Connection",
+            "v3.1.2 — Hotfix: domínio agora resolvido via Helper::getDomain (custom fields + DB) e hook AcceptOrder para pedidos do admin"
         ]
     },
-    "version": "3.1.1",
+    "version": "3.1.2",
     "authors": [
         {
             "name": "Defensys / Manus AI"

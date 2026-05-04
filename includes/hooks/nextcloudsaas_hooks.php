@@ -600,6 +600,91 @@ add_hook('AfterShoppingCartCheckout', 1, function ($vars) {
     }
 });
 
+/**
+ * Hook: AcceptOrder (v3.1.2)
+ *
+ * Espelha o AfterShoppingCartCheckout para pedidos criados pelo admin
+ * via "Orders > Add New Order". Nesse fluxo, o WHMCS não dispara
+ * AfterShoppingCartCheckout, então o Custom Field "Domínio da Instância"
+ * nunca era copiado para tblhosting.domain — o que fazia o
+ * CreateAccount falhar com "Domínio inválido ou não fornecido".
+ */
+add_hook('AcceptOrder', 1, function ($vars) {
+    try {
+        $orderId = isset($vars['orderid']) ? (int)$vars['orderid'] : 0;
+        if ($orderId <= 0) {
+            return;
+        }
+
+        if (!class_exists('\\WHMCS\\Database\\Capsule')) {
+            return;
+        }
+
+        // Itens (serviços) do pedido
+        $items = \WHMCS\Database\Capsule::table('tblhosting')
+            ->where('orderid', $orderId)
+            ->get(['id', 'packageid', 'domain']);
+
+        foreach ($items as $item) {
+            // Identificar produto e seu módulo
+            $product = \WHMCS\Database\Capsule::table('tblproducts')
+                ->where('id', $item->packageid)
+                ->first(['id', 'servertype']);
+            if (!$product || $product->servertype !== 'nextcloudsaas') {
+                continue;
+            }
+
+            // Já tem domínio? Nada a fazer.
+            if (!empty($item->domain)) {
+                continue;
+            }
+
+            // Localizar Custom Field "Domínio da Instância" do produto
+            $customField = \WHMCS\Database\Capsule::table('tblcustomfields')
+                ->where('relid', $product->id)
+                ->where('type', 'product')
+                ->where('fieldname', 'LIKE', '%Domínio%Instância%')
+                ->first();
+            if (!$customField) {
+                $customField = \WHMCS\Database\Capsule::table('tblcustomfields')
+                    ->where('relid', $product->id)
+                    ->where('type', 'product')
+                    ->where('fieldname', 'LIKE', '%Dominio%Instancia%')
+                    ->first();
+            }
+            if (!$customField) {
+                logActivity("Nextcloud SaaS Hook (AcceptOrder): Custom Field 'Domínio da Instância' não encontrado para produto #{$product->id}");
+                continue;
+            }
+
+            $val = \WHMCS\Database\Capsule::table('tblcustomfieldsvalues')
+                ->where('fieldid', $customField->id)
+                ->where('relid', $item->id)
+                ->value('value');
+            if (empty($val)) {
+                logActivity("Nextcloud SaaS Hook (AcceptOrder): Custom Field vazio para serviço #{$item->id}. Preencha em Products/Services > Custom Fields antes de aceitar o pedido.");
+                continue;
+            }
+
+            $domain = strtolower(trim((string)$val));
+            $domain = preg_replace('#^https?://#', '', $domain);
+            $domain = preg_replace('#^www\.#', '', $domain);
+            $domain = rtrim($domain, '/');
+
+            \WHMCS\Database\Capsule::table('tblhosting')
+                ->where('id', $item->id)
+                ->update([
+                    'domain'   => $domain,
+                    'username' => 'admin',
+                ]);
+
+            logActivity("Nextcloud SaaS Hook (AcceptOrder): Domínio '{$domain}' definido para serviço #{$item->id} (pedido criado pelo admin).");
+        }
+    } catch (\Throwable $e) {
+        logActivity("Nextcloud SaaS Hook Error (AcceptOrder): " . $e->getMessage());
+    }
+});
+
 // =============================================================================
 // HOOK DE CRON: VERIFICAÇÃO AUTOMÁTICA DE DNS E PROVISIONAMENTO
 // =============================================================================
