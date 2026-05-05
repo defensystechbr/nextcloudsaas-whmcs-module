@@ -2,6 +2,23 @@
 
 Todas as mudanças notáveis deste módulo seguem [Keep a Changelog](https://keepachangelog.com/pt-BR/) e [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## v3.1.5 (2026-05-04)
+
+### Adicionado
+- **`SSHManager::instanceExists($clientName)`** — nova verificação remota que consulta em uma única chamada SSH se o diretório `/opt/nextcloud-customers/<cliente>/` existe e se há `.credentials` ou `.env`. Usado pelo `CreateAccount` para detectar instâncias já provisionadas.
+- **Botão admin `Provisionar Agora`** (`nextcloudsaas_provisionNow`) na **Module Commands** do serviço. Re-executa `CreateAccount` de forma idempotente sem esperar pelo cron de 5 minutos: útil para destravar Orders pendentes após correcção de DNS ou quando a instância já existe no servidor mas o Order continua **Pending**. Mostra um painel com o resultado (`success` ou erro), o status do Order e o horário início/fim.
+- **`nextcloudsaas_acceptOrderForService($serviceId)`** — função utilitária que localiza o `orderid` ligado a um serviço e, se estiver em **Pending**, chama `localAPI('AcceptOrder', [...])` com `autosetup=false` e `sendemail=false`. Idempotente para Orders já ativos; preserva Cancelled/Fraud sem tocar.
+
+### Corrigido
+- **Order ficava em `Pending` após provisionamento automático via cron.** O hook `AfterCronJob` previamente atualizava apenas `tblhosting.domainstatus = Active`, mas não aceitava o Order (`tblorders.status` continuava `Pending`). Agora, após `ModuleCreate` retornar `success`, o cron chama `nextcloudsaas_acceptOrderForService` e loga a transição em **Activity Log** (`Order do Serviço #X aceito automaticamente (Pending -> Active)`).
+- **`CreateAccount` falhava quando a instância já existia no servidor.** Agora, antes de chamar `manage.sh create`, o módulo verifica via SSH se a instância já está provisionada; se sim, **reutiliza as credenciais existentes** em `.credentials` / `.env`, atualiza o serviço WHMCS via `UpdateClientProduct` e popula os Custom Fields, retornando `success`. Isto destrava Orders cuja instância foi criada por um caminho diferente (cron, manage.sh manual, recuperação de erro).
+- **`CreateAccount` agora ativa o Order também no fluxo síncrono.** Mesmo quando o `CreateAccount` é executado diretamente (Module Create no admin), o módulo chama `nextcloudsaas_acceptOrderForService` no final — garantindo que produtos FREE (fatura `$0`) ou pedidos com `autosetup` desligado não fiquem com Order em **Pending** indefinidamente.
+- **Falha de quota no fast-path não aborta a ativação.** Quando reutilizando uma instância existente, eventuais erros em `setUserQuota`/`setDefaultQuota` são logados como warning mas não invalidam o `success` (em provisionamento novo o comportamento original é mantido: erro de quota propaga).
+
+### Documentado
+- README **§6 Operate**: nova subseção **“Destravar um Order que ficou em Pending”** explicando os três caminhos (botão `Provisionar Agora`, `Module Create` + Activity Log, `Accept Order` manual em **Orders > List Pending**) e quando usar cada um.
+- CHANGELOG: documentação desta release.
+
 ## v3.1.4 (2026-05-04)
 
 ### Removido

@@ -1087,4 +1087,56 @@ public function testConnection()
             'raw'     => $result['output'],
         ];
     }
+
+    /**
+     * Verificar se uma instância já existe no servidor (v3.1.5).
+     *
+     * Considera-se que uma instância existe se:
+     *   - O diretório /opt/nextcloud-customers/<cliente>/ existe, E
+     *   - O ficheiro .credentials OU .env estão presentes.
+     *
+     * Usado para tornar `CreateAccount` idempotente: quando o cron já
+     * provisionou a instância anteriormente, o módulo reutiliza as
+     * credenciais existentes em vez de tentar criar de novo (e falhar).
+     *
+     * @param string $clientName Nome da instância
+     * @return array {
+     *     exists: bool,
+     *     has_credentials: bool,
+     *     has_env: bool,
+     *     path: string
+     * }
+     */
+    public function instanceExists($clientName)
+    {
+        $instancePath = $this->basePath . '/' . $clientName;
+        $credFile     = $instancePath . '/.credentials';
+        $envFile      = $instancePath . '/.env';
+
+        // Em uma única chamada SSH testamos os três paths e devolvemos
+        // marcadores no stdout. Isto reduz latência (1 chamada vs 3).
+        $innerCmd = sprintf(
+            '( [ -d %s ] && echo DIR_OK || echo DIR_MISS ) ; '
+            . '( [ -f %s ] && echo CRED_OK || echo CRED_MISS ) ; '
+            . '( [ -f %s ] && echo ENV_OK || echo ENV_MISS )',
+            escapeshellarg($instancePath),
+            escapeshellarg($credFile),
+            escapeshellarg($envFile)
+        );
+        $cmd = $this->wrapWithSudo($innerCmd);
+        $result = $this->executeCommand($cmd, 10);
+
+        $output = is_array($result) && isset($result['output']) ? (string) $result['output'] : '';
+
+        $dirOk  = (strpos($output, 'DIR_OK')  !== false);
+        $credOk = (strpos($output, 'CRED_OK') !== false);
+        $envOk  = (strpos($output, 'ENV_OK')  !== false);
+
+        return [
+            'exists'          => ($dirOk && ($credOk || $envOk)),
+            'has_credentials' => $credOk,
+            'has_env'         => $envOk,
+            'path'            => $instancePath,
+        ];
+    }
 }

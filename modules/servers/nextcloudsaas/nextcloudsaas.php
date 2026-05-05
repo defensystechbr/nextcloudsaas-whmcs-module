@@ -21,7 +21,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    3.0.0
+ * @version    3.1.5
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -285,18 +285,10 @@ function nextcloudsaas_CreateAccount(array $params)
             }
         }
 
-        // Verificar DNS antes de provisionar
+        // Obter configuração do servidor (necessário para fast-path e
+        // verificação DNS)
         $serverConfig = Helper::getServerConfig($params);
         $serverIp = !empty($serverConfig['ip']) ? $serverConfig['ip'] : $serverConfig['hostname'];
-
-        if (!empty($serverIp) && $serverIp !== '0.0.0.0') {
-            $dnsCheck = Helper::checkDnsRecords($domain, $serverIp);
-            if (!$dnsCheck['all_ok']) {
-                return "DNS não configurado corretamente. {$dnsCheck['message']}\n"
-                     . "O registro DNS A do domínio deve apontar para {$serverIp}.\n"
-                     . "O sistema verificará automaticamente a cada 5 minutos e provisionará quando o DNS estiver correto.";
-            }
-        }
 
         // Derivar nome do cliente para o manage.sh
         $clientName = nextcloudsaas_getClientName($params);
@@ -305,33 +297,80 @@ function nextcloudsaas_CreateAccount(array $params)
             return "Não foi possível derivar o nome do cliente.";
         }
 
-        Helper::log('CreateAccount', [
-            'clientName' => $clientName,
-            'domain'     => $domain,
-            'quota'      => $productConfig['disk_quota_gb'],
-            'maxUsers'   => $productConfig['max_users'],
-        ]);
-
-        // Conectar ao servidor via SSH e executar manage.sh create
+        // Conectar ao servidor via SSH (necessário tanto para a verificação
+        // de idempotência quanto para a criação da instância)
         $ssh = nextcloudsaas_getSSHManager($params);
 
-        // Verificar se o manage.sh existe
-        $verify = $ssh->verifyManageScript();
-        if (!$verify['exists']) {
-            return "O script manage.sh não foi encontrado no servidor em {$verify['path']}. "
-                 . "Verifique se o Nextcloud SaaS está instalado corretamente.";
+        // -------------------------------------------------------------------
+        // FAST-PATH IDEMPOTENTE (v3.1.5)
+        // -------------------------------------------------------------------
+        // Se a instância já existe no servidor (criada por execução
+        // anterior do cron `AfterCronJob` ou por intervenção manual via
+        // manage.sh), reutilizamos as credenciais existentes em vez
+        // de tentar `manage.sh create` de novo — o que falharia.
+        //
+        // Critério: existe diretório /opt/nextcloud-customers/<cliente>/
+        // E pelo menos um dos ficheiros .credentials ou .env está presente.
+        $existsCheck = $ssh->instanceExists($clientName);
+        $reuseExisting = !empty($existsCheck['exists']);
+
+        if ($reuseExisting) {
+            Helper::log('CreateAccount_reuse', [
+                'clientName' => $clientName,
+                'domain'     => $domain,
+                'reason'     => 'instance already provisioned on server',
+            ], $existsCheck);
+        } else {
+            // Verificar DNS apenas quando vamos REALMENTE criar do zero —
+            // se a instância já existe, o DNS já estava OK no momento da
+            // criação e não precisa ser revalidado aqui.
+            if (!empty($serverIp) && $serverIp !== '0.0.0.0') {
+                $dnsCheck = Helper::checkDnsRecords($domain, $serverIp);
+                if (!$dnsCheck['all_ok']) {
+                    return "DNS não configurado corretamente. {$dnsCheck['message']}\n"
+                         . "O registro DNS A do domínio deve apontar para {$serverIp}.\n"
+                         . "O sistema verificará automaticamente a cada 5 minutos e provisionará quando o DNS estiver correto.";
+                }
+            }
         }
 
-        // Criar a instância
-        $result = $ssh->createInstance($clientName, $domain);
+        Helper::log('CreateAccount', [
+            'clientName'    => $clientName,
+            'domain'        => $domain,
+            'quota'         => $productConfig['disk_quota_gb'],
+            'maxUsers'      => $productConfig['max_users'],
+            'reuseExisting' => $reuseExisting,
+        ]);
 
-        Helper::log('CreateAccount_result', [
-            'clientName' => $clientName,
-            'domain'     => $domain,
-        ], $result);
+        if (!$reuseExisting) {
+            // Verificar se o manage.sh existe
+            $verify = $ssh->verifyManageScript();
+            if (!$verify['exists']) {
+                return "O script manage.sh não foi encontrado no servidor em {$verify['path']}. "
+                     . "Verifique se o Nextcloud SaaS está instalado corretamente.";
+            }
 
-        if (!$result['success']) {
-            return "Erro ao criar instância Nextcloud: " . $result['error'];
+            // Criar a instância
+            $result = $ssh->createInstance($clientName, $domain);
+
+            Helper::log('CreateAccount_result', [
+                'clientName' => $clientName,
+                'domain'     => $domain,
+            ], $result);
+
+            if (!$result['success']) {
+                // Algumas versões do manage.sh saem com código de erro mesmo
+                // depois de já ter criado a instância parcialmente. Antes de
+                // dar como falha, reconfirmamos no servidor:
+                $postCheck = $ssh->instanceExists($clientName);
+                if (empty($postCheck['exists'])) {
+                    return "Erro ao criar instância Nextcloud: " . $result['error'];
+                }
+                Helper::log('CreateAccount_recovered_after_error', [
+                    'clientName' => $clientName,
+                    'domain'     => $domain,
+                ], $postCheck);
+            }
         }
 
         // Ler as credenciais geradas pelo manage.sh
@@ -376,14 +415,39 @@ function nextcloudsaas_CreateAccount(array $params)
         nextcloudsaas_saveCustomField($params['serviceid'], 'Collabora URL', 'https://' . $collaboraDomain);
         nextcloudsaas_saveCustomField($params['serviceid'], 'Signaling URL', 'https://' . $signalingDomain);
 
-        // Aplicar quota ao utilizador admin e definir quota padrão
+        // Aplicar quota ao utilizador admin e definir quota padrão.
+        // No fast-path idempotente (reuseExisting), ignorar erros silenciosamente:
+        // a instância já estava operacional e não queremos quebrar a ativação.
         if (!empty($productConfig['disk_quota_gb']) && $productConfig['disk_quota_gb'] !== 'none') {
-            $quota = Helper::formatQuotaForNextcloud($productConfig['disk_quota_gb']);
-            // Aplicar quota ao admin
-            $ssh->setUserQuota($clientName, $adminUser, $quota);
-            // Definir quota padrão para todos os novos utilizadores
-            $ssh->setDefaultQuota($clientName, $quota);
+            try {
+                $quota = Helper::formatQuotaForNextcloud($productConfig['disk_quota_gb']);
+                // Aplicar quota ao admin
+                $ssh->setUserQuota($clientName, $adminUser, $quota);
+                // Definir quota padrão para todos os novos utilizadores
+                $ssh->setDefaultQuota($clientName, $quota);
+            } catch (\Throwable $eq) {
+                Helper::log('CreateAccount_quota_warning', [
+                    'clientName'    => $clientName,
+                    'reuseExisting' => $reuseExisting,
+                ], $eq->getMessage());
+                if (!$reuseExisting) {
+                    // Em provisionamento novo, propagar a falha de quota
+                    throw $eq;
+                }
+                // Em fast-path, não-fatal
+            }
         }
+
+        // -------------------------------------------------------------------
+        // Ativar o Order do WHMCS (v3.1.5)
+        // -------------------------------------------------------------------
+        // O `CreateAccount` retornar 'success' faz o WHMCS marcar o serviço
+        // (`tblhosting.domainstatus`) como Active, mas o pedido em si
+        // (`tblorders.status`) permanece em Pending para produtos com
+        // `autosetup` desligado ou faturas em $0. Chamamos `AcceptOrder`
+        // explicitamente para fechar o ciclo — sem reenvio de e-mail nem
+        // re-execução do módulo (autosetup=false).
+        nextcloudsaas_acceptOrderForService((int) $params['serviceid']);
 
     } catch (\Exception $e) {
         Helper::log('CreateAccount', $params, $e->getMessage(), $e->getTraceAsString());
@@ -391,6 +455,100 @@ function nextcloudsaas_CreateAccount(array $params)
     }
 
     return 'success';
+}
+
+/**
+ * Aceitar (ativar) o Order WHMCS associado a um serviço, se ainda
+ * estiver em Pending (v3.1.5).
+ *
+ * Quando `CreateAccount` conclui com sucesso o WHMCS marca o serviço
+ * como Active, mas não aceita automaticamente o Order (`tblorders`).
+ * Esta função:
+ *   1. Localiza o `orderid` ligado ao serviço em tblhosting.
+ *   2. Lê o status atual em tblorders.
+ *   3. Se estiver Pending, chama `localAPI('AcceptOrder', ...)` com
+ *      `autosetup=false` (não reexecutar módulo) e `sendemail=false`.
+ *   4. Loga a transição para diagnóstico.
+ *
+ * Idempotente: se o Order já estiver Active, não faz nada.
+ *
+ * @param int $serviceId tblhosting.id
+ * @return bool true se ativou (ou já estava ativo); false se erro
+ */
+function nextcloudsaas_acceptOrderForService($serviceId)
+{
+    if ($serviceId <= 0 || !function_exists('localAPI')) {
+        return false;
+    }
+
+    try {
+        if (!class_exists('\\WHMCS\\Database\\Capsule')) {
+            return false;
+        }
+
+        $service = \WHMCS\Database\Capsule::table('tblhosting')
+            ->where('id', $serviceId)
+            ->first(['orderid']);
+
+        if (empty($service) || empty($service->orderid)) {
+            Helper::log('AcceptOrder_skip', ['serviceId' => $serviceId, 'reason' => 'no orderid']);
+            return false;
+        }
+
+        $order = \WHMCS\Database\Capsule::table('tblorders')
+            ->where('id', (int) $service->orderid)
+            ->first(['status']);
+
+        if (empty($order)) {
+            Helper::log('AcceptOrder_skip', ['serviceId' => $serviceId, 'orderId' => $service->orderid, 'reason' => 'order not found']);
+            return false;
+        }
+
+        if ($order->status === 'Active') {
+            return true;
+        }
+
+        if ($order->status !== 'Pending') {
+            // Não tocar em Cancelled, Fraud, etc.
+            Helper::log('AcceptOrder_skip', [
+                'serviceId' => $serviceId,
+                'orderId'   => $service->orderid,
+                'status'    => $order->status,
+            ]);
+            return false;
+        }
+
+        $resp = localAPI('AcceptOrder', [
+            'orderid'           => (int) $service->orderid,
+            'autosetup'         => false,
+            'sendemail'         => false,
+            'registrar'         => '',
+            'serverid'          => '',
+            'serviceusername'   => '',
+            'servicepassword'   => '',
+        ]);
+
+        $ok = isset($resp['result']) && $resp['result'] === 'success';
+
+        Helper::log('AcceptOrder', [
+            'serviceId' => $serviceId,
+            'orderId'   => $service->orderid,
+            'status_before' => $order->status,
+        ], $resp);
+
+        if ($ok && function_exists('logActivity')) {
+            logActivity(sprintf(
+                'Nextcloud SaaS: Order #%d aceito automaticamente (serviço #%d) após provisionamento bem-sucedido.',
+                (int) $service->orderid,
+                $serviceId
+            ));
+        }
+
+        return (bool) $ok;
+    } catch (\Throwable $e) {
+        Helper::log('AcceptOrder_exception', ['serviceId' => $serviceId], $e->getMessage());
+        return false;
+    }
 }
 
 /**
@@ -844,6 +1002,7 @@ function nextcloudsaas_AdminSingleSignOn(array $params)
 function nextcloudsaas_AdminCustomButtonArray()
 {
     return [
+        'Provisionar Agora'             => 'provisionNow',
         'Verificar Estado'              => 'checkStatus',
         'Verificar DNS'                 => 'checkDns',
         'Serviços Compartilhados'       => 'checkSharedServices',
@@ -870,6 +1029,109 @@ function nextcloudsaas_ClientAreaCustomButtonArray()
         'Verificar Estado'    => 'checkStatus',
         'Reiniciar Instância' => 'restartInstance',
     ];
+}
+
+/**
+ * Botão admin 'Provisionar Agora' (v3.1.5).
+ *
+ * Re-executa o `CreateAccount` deste serviço de forma idempotente,
+ * sem esperar pelo cron de 5 minutos. Útil para destravar Orders
+ * pendentes quando o DNS já foi corrigido (ou quando a instância
+ * já existe no servidor mas o Order continua Pending).
+ *
+ * Comportamento:
+ *   1. Chama `nextcloudsaas_CreateAccount($params)` diretamente.
+ *   2. Se retornar 'success', força `domainstatus = Active` em
+ *      tblhosting e tenta aceitar o Order via
+ *      `nextcloudsaas_acceptOrderForService`.
+ *   3. Em qualquer caso, registra um painel na sessão
+ *      (`nextcloudsaas_panel`) para o admin ver o resultado na aba
+ *      `Module` do serviço.
+ *
+ * @param array $params Parâmetros comuns do módulo
+ * @return string "success" ou mensagem de erro (string)
+ */
+function nextcloudsaas_provisionNow(array $params)
+{
+    $serviceId = isset($params['serviceid']) ? (int) $params['serviceid'] : 0;
+    $startedAt = date('Y-m-d H:i:s');
+
+    Helper::log('provisionNow_start', [
+        'serviceId' => $serviceId,
+        'domain'    => isset($params['domain']) ? $params['domain'] : '',
+    ]);
+
+    $createResult = '';
+    try {
+        $createResult = nextcloudsaas_CreateAccount($params);
+    } catch (\Throwable $e) {
+        $createResult = 'Exceção em CreateAccount: ' . $e->getMessage();
+    }
+
+    $success = ($createResult === 'success');
+    $orderAccepted = false;
+
+    if ($success && $serviceId > 0 && class_exists('\\WHMCS\\Database\\Capsule')) {
+        try {
+            // Forçar status Active no serviço (defesa em profundidade —
+            // o WHMCS já deveria ter feito isso ao receber 'success').
+            \WHMCS\Database\Capsule::table('tblhosting')
+                ->where('id', $serviceId)
+                ->update(['domainstatus' => 'Active']);
+        } catch (\Throwable $e) {
+            // não-fatal
+        }
+        $orderAccepted = nextcloudsaas_acceptOrderForService($serviceId);
+    }
+
+    Helper::log('provisionNow_result', [
+        'serviceId'     => $serviceId,
+        'success'       => $success,
+        'orderAccepted' => $orderAccepted,
+    ], $createResult);
+
+    if (function_exists('logActivity')) {
+        if ($success) {
+            logActivity(sprintf(
+                'Nextcloud SaaS: Botão "Provisionar Agora" executado para Serviço #%d - sucesso. Order ativado: %s.',
+                $serviceId,
+                $orderAccepted ? 'sim' : 'não'
+            ));
+        } else {
+            logActivity(sprintf(
+                'Nextcloud SaaS: Botão "Provisionar Agora" executado para Serviço #%d - erro: %s',
+                $serviceId,
+                is_string($createResult) ? $createResult : 'desconhecido'
+            ));
+        }
+    }
+
+    // Painel para a aba Module
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    $panelTitle = $success
+        ? 'Provisionamento manual concluído com sucesso'
+        : 'Provisionamento manual retornou erro';
+    $panelLines = [];
+    $panelLines[] = 'Início: ' . $startedAt;
+    $panelLines[] = 'Fim:    ' . date('Y-m-d H:i:s');
+    $panelLines[] = 'CreateAccount: ' . ($success ? 'success' : (string) $createResult);
+    if ($success) {
+        $panelLines[] = 'Order WHMCS:  ' . ($orderAccepted ? 'aceito (Active)' : 'sem alteração (já estava Active ou sem orderid)');
+    }
+    $_SESSION['nextcloudsaas_panel'] = [
+        'type'      => 'provision_now',
+        'title'     => $panelTitle,
+        'content'   => implode("\n", $panelLines),
+        'serviceid' => $serviceId,
+        'timestamp' => date('Y-m-d H:i:s'),
+    ];
+
+    if ($success) {
+        return 'success';
+    }
+    return is_string($createResult) ? $createResult : 'Erro desconhecido em CreateAccount.';
 }
 
 /**

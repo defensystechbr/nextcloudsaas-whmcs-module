@@ -204,8 +204,9 @@ O módulo lê o domínio da instância a partir do Custom Field **"Domínio da I
 
 Na área de administração do WHMCS, na página do serviço do cliente, estão disponíveis os seguintes botões:
 
--   **Verificar Estado:** Mostra o estado de cada um dos 10 containers.
--   **Verificar DNS:** Verifica se os 3 registros DNS (principal, collabora, signaling) apontam para o IP do servidor configurado no WHMCS. Exibe tabela detalhada com status de cada registro.
+-   **Provisionar Agora (v3.1.5):** Re-executa `CreateAccount` de forma idempotente sem esperar o cron de 5 minutos. Útil para destravar Orders que ficaram em **Pending** após o cliente corrigir o DNS, ou quando a instância já existe no servidor (criada por execução anterior do cron ou via `manage.sh` manual). Ativa o serviço e o Order automaticamente. Veja **§6. Operar > Destravar um Order que ficou em Pending**.
+-   **Verificar Estado:** Mostra o estado dos 3 containers dedicados (`<cliente>-app`, `<cliente>-cron`, `<cliente>-harp`).
+-   **Verificar DNS:** Verifica se o registro DNS A do domínio do cliente aponta para o IP do servidor configurado no WHMCS. Exibe tabela detalhada com status do registro.
 -   **Reiniciar Instância:** Executa `stop` e `start` (o manage.sh não tem comando restart).
 -   **Fazer Backup:** Executa o comando de backup do `manage.sh`.
 -   **Atualizar Instância:** Executa o comando de atualização do `manage.sh` (pull + upgrade).
@@ -233,6 +234,14 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 ---
 
 ## 4. Changelog
+
+-   **v3.1.5 (2026-05-04):** Idempotência, ativação automática de Order e botão **Provisionar Agora**.
+    -   Novo botão admin **Provisionar Agora** (`provisionNow`) na **Module Commands** do serviço: re-executa `CreateAccount` idempotentemente, ativa o serviço e aceita o Order — útil quando o Order ficou em **Pending** após o cron já ter criado a instância, ou logo após o cliente corrigir o DNS.
+    -   `nextcloudsaas_CreateAccount` agora é **idempotente**: se a instância já existe em `/opt/nextcloud-customers/<cliente>/`, o módulo lê as credenciais existentes (`.credentials` / `.env`), atualiza o serviço WHMCS via `UpdateClientProduct`, popula os Custom Fields e retorna `success` em vez de tentar `manage.sh create` novamente.
+    -   `AfterCronJob` e o próprio `CreateAccount` chamam `localAPI('AcceptOrder', [...])` ao concluir o provisionamento. Antes, o serviço virava **Active** mas o Order continuava **Pending** indefinidamente em produtos FREE (fatura `$0`) ou com `autosetup` desligado. Agora o ciclo Pending → Active fecha sozinho.
+    -   Nova função `nextcloudsaas_acceptOrderForService($serviceId)` (idempotente, segura: não toca em Orders Cancelled/Fraud).
+    -   Novo método `SSHManager::instanceExists($clientName)`.
+    -   Falhas em `setUserQuota` no fast-path passaram a ser não-fatais (logged como warning) para não invalidar uma reativação.
 
 -   **v3.1.4 (2026-05-04):** Cleanup UX na **Admin Service Tab**.
     -   Removidos os campos **URL do Collabora**, **URL do Signaling** e as duas linhas extras (`collabora-01.defensys.seg.br`, `signaling-01.defensys.seg.br`) do campo **DNS Necessários**. Agora apenas o domínio do cliente é listado, no novo rótulo **DNS Necessário (Registro A)**.
@@ -344,3 +353,31 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 -   `includes/hooks/nextcloudsaas_hooks.php`: Hooks completos do módulo — ciclo de vida, personalização do carrinho, verificação DNS por cron, provisionamento automático, emails e notificações.
 -   `whmcs.json`: Metadados do módulo.
 -   `vendor/`: Contém a biblioteca `phpseclib3`.
+
+---
+
+## 6. Operar
+
+### 6.1. Destravar um Order que ficou em Pending
+
+A partir da **v3.1.5** o ciclo `Pending → Active` é fechado automaticamente em duas situações: (a) quando o `CreateAccount` é executado pelo admin e retorna `success`; (b) quando o `AfterCronJob` provisiona automaticamente após o DNS ficar correto. Em ambos os casos o módulo chama `localAPI('AcceptOrder', [...])` (com `autosetup=false` e `sendemail=false`) e registra a transição em **Utilities > Logs > Activity Log**.
+
+Se ainda assim um Order ficar em **Pending** — por exemplo, se a instância foi criada antes da v3.1.5, ou se o `CreateAccount` falhou em algum passo intermediário e foi recuperado manualmente no servidor — você tem três caminhos, em ordem de menor para maior intervenção:
+
+| Caminho | Quando usar | Ação |
+|---|---|---|
+| **Botão "Provisionar Agora"** | A instância já existe no servidor (criada pelo cron anterior ou via `manage.sh` manual) e o Order continua Pending; ou o cliente acabou de corrigir o DNS e você não quer esperar 5 minutos pelo cron | **Products/Services do cliente > Module Commands > Provisionar Agora**. O módulo detecta a instância existente, reusa as credenciais, ativa o serviço e aceita o Order. Mostra um painel com `success` e o status do Order. |
+| **Module Create + AcceptOrder** | A v3.1.5 está instalada mas você prefere o fluxo nativo do WHMCS | **Products/Services do cliente > Module Commands > Create**. O `CreateAccount` v3.1.5 já chama `AcceptOrder` ao final, ativando o Order automaticamente. |
+| **Accept Order manual** | Você só quer ativar o Order, sem reexecutar o módulo | **Orders > List Pending Orders > [pedido] > Accept Order**. Ative com `autosetup=false` para não disparar o módulo. Em seguida, **Products/Services do cliente** > mude **Status** para **Active** se ainda não estiver. |
+
+### 6.2. Diagnóstico em logs
+
+Filtre **Utilities > Logs > Activity Log** por `Nextcloud SaaS` para ver:
+
+- `Nextcloud SaaS Cron: DNS CONFIRMADO` — DNS começou a apontar corretamente.
+- `Nextcloud SaaS Cron: PROVISIONAMENTO CONCLUÍDO` — `manage.sh create` rodou e retornou `success`.
+- `Nextcloud SaaS Cron: Order do Serviço #X aceito automaticamente (Pending -> Active)` — v3.1.5 fechou o ciclo.
+- `Nextcloud SaaS: Botão "Provisionar Agora" executado para Serviço #X - sucesso. Order ativado: sim.` — execução manual do botão.
+- `Nextcloud SaaS Cron: ERRO NO PROVISIONAMENTO` — falha do `manage.sh`. A mensagem `Erro:` indica o que falhou.
+
+Para inspeção mais profunda, o módulo grava entradas detalhadas via `Helper::log` em **Utilities > Logs > Module Log** (chave `nextcloudsaas`). Procure pelos eventos `CreateAccount_reuse` (fast-path acionado), `CreateAccount_recovered_after_error` (recuperação após `manage.sh` retornar não-zero), `AcceptOrder` e `provisionNow_result`.
