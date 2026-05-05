@@ -32,10 +32,11 @@
             "v3.1.1 — Hotfix: porta 22 como fallback robusto + mensagem de erro inteligente no Test Connection",
             "v3.1.2 — Hotfix: domínio agora resolvido via Helper::getDomain (custom fields + DB) e hook AcceptOrder para pedidos do admin",
             "v3.1.3 — Cleanup UX: remove seções e textos de Collabora/MariaDB/TURN/Signaling do painel do cliente e e-mail — serviços globais não pertencem ao assinante",
-            "v3.1.4 — Cleanup UX admin: remove URL do Collabora, URL do Signaling e DNS extra da Admin Service Tab; corrige contagem de containers (3 dedicados em vez de 10)"
+            "v3.1.4 — Cleanup UX admin: remove URL do Collabora, URL do Signaling e DNS extra da Admin Service Tab; corrige contagem de containers (3 dedicados em vez de 10)",
+            "v3.1.5 — CreateAccount idempotente (reutiliza instância já provisionada no servidor), AcceptOrder automático pós-provisionamento (Pending → Active) e novo botão admin 'Provisionar Agora' para destravar Orders pendentes sem esperar o cron"
         ]
     },
-    "version": "3.1.4",
+    "version": "3.1.5",
     "authors": [
         {
             "name": "Defensys / Manus AI"

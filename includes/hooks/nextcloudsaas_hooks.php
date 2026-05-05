@@ -856,6 +856,18 @@ function nextcloudsaas_cronProcessPendingService($service)
 
         logActivity("Nextcloud SaaS Cron: Status do Serviço #{$serviceId} alterado para Active.");
 
+        // v3.1.5: aceitar (ativar) o Order WHMCS associado a este serviço.
+        // O `ModuleCreate` ativa apenas tblhosting; o Order continuaria em
+        // Pending sem este passo.
+        if (function_exists('nextcloudsaas_acceptOrderForService')) {
+            $orderActivated = nextcloudsaas_acceptOrderForService($serviceId);
+            if ($orderActivated) {
+                logActivity("Nextcloud SaaS Cron: Order do Serviço #{$serviceId} aceito automaticamente (Pending -> Active).");
+            } else {
+                logActivity("Nextcloud SaaS Cron: Atenção - não foi possível aceitar o Order do Serviço #{$serviceId} automaticamente. Verifique manualmente em Orders > List Pending.");
+            }
+        }
+
         // Marcar nas notas que foi provisionado automaticamente
         $updatedNotes = $notes . "\n[NextcloudSaaS] auto_provisioned=" . date('Y-m-d H:i:s');
         \WHMCS\Database\Capsule::table('tblhosting')
