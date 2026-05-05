@@ -21,7 +21,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    3.1.5
+ * @version    3.1.6
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -1496,6 +1496,20 @@ function nextcloudsaas_viewCredentials(array $params)
         $collaboraDomain = Helper::getCollaboraDomain($domain);
         $signalingDomain = Helper::getSignalingDomain($domain);
 
+        // v3.1.6: o manage.sh v11.x não escreve mais HP_SHARED_KEY no
+        // .credentials. Buscar diretamente no docker-compose.yml/container
+        // quando o parser não encontrar.
+        if (empty($creds['harp_shared_key']) && method_exists($ssh, 'getHarpSharedKey')) {
+            $harp = $ssh->getHarpSharedKey($clientName);
+            if (!empty($harp['key'])) {
+                $creds['harp_shared_key'] = $harp['key'];
+                Helper::log('viewCredentials_harp_fallback', [
+                    'clientName' => $clientName,
+                    'source'     => $harp['source'],
+                ]);
+            }
+        }
+
         // Construir HTML formatado para exibição no painel
         $html = nextcloudsaas_buildCredentialsHtml($clientName, $domain, $creds, $serverIp, $collaboraDomain, $signalingDomain);
 
@@ -2178,6 +2192,20 @@ function nextcloudsaas_ClientArea(array $params)
                 $templateVars['turnAddress']      = !empty($creds['turn_address']) ? $creds['turn_address'] : (!empty($creds['turn_port']) ? 'turn:' . $serverIp . ':' . $creds['turn_port'] : '');
                 $templateVars['signalingSecret']  = !empty($creds['signaling_secret']) ? $creds['signaling_secret'] : '';
                 $templateVars['harpSharedKey']    = !empty($creds['harp_shared_key']) ? $creds['harp_shared_key'] : '';
+
+                // v3.1.6: o manage.sh v11.x não escreve mais a HP_SHARED_KEY
+                // no ficheiro .credentials. Quando o parser não achou, vamos
+                // buscar diretamente no docker-compose.yml ou no container.
+                if (empty($templateVars['harpSharedKey']) && method_exists($ssh, 'getHarpSharedKey')) {
+                    $harp = $ssh->getHarpSharedKey($clientName);
+                    if (!empty($harp['key'])) {
+                        $templateVars['harpSharedKey'] = $harp['key'];
+                        Helper::log('clientarea_harp_fallback', [
+                            'clientName' => $clientName,
+                            'source'     => $harp['source'],
+                        ]);
+                    }
+                }
 
                 // Extrair data de criação do raw (usar strpos para evitar problemas UTF-8)
                 $striposFunc = function_exists('mb_stripos') ? 'mb_stripos' : 'stripos';

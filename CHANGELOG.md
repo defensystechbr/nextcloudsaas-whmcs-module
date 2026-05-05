@@ -2,6 +2,15 @@
 
 Todas as mudanças notáveis deste módulo seguem [Keep a Changelog](https://keepachangelog.com/pt-BR/) e [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## v3.1.6 (2026-05-04)
+
+### Corrigido
+- **HaRP (AppAPI) Shared Key exibida como "Não disponível" no painel do cliente e no painel admin de credenciais.** O `manage.sh` v11.x deixou de gravar o campo `Shared Key` na seção `HaRP` do ficheiro `.credentials` (na verdade, a seção **HaRP** sequer existe no novo formato) — o valor é escrito apenas como `HP_SHARED_KEY=...` no `docker-compose.yml` da instância e exposto como variável de ambiente do container `<cliente>-harp`. O parser do módulo continuava procurando pela linha antiga e devolvia string vazia.
+
+### Adicionado
+- **`SSHManager::getHarpSharedKey($clientName)`** — novo método que tenta, em ordem: (a) `grep` em `/opt/nextcloud-customers/<cliente>/docker-compose.yml` pela linha `HP_SHARED_KEY=...`; (b) `docker exec <cliente>-harp printenv HP_SHARED_KEY`. Devolve `array {success, key, source, raw}`, registrando em qual fonte a chave foi encontrada.
+- **Fallback automático nos painis do cliente e do admin.** Tanto `nextcloudsaas_ClientArea()` quanto `nextcloudsaas_viewCredentials()` agora chamam `getHarpSharedKey()` quando o parser do `.credentials` não achou `harp_shared_key`. A descoberta é logada como `clientarea_harp_fallback` e `viewCredentials_harp_fallback` no Module Log para facilitar diagnóstico.
+
 ## v3.1.5 (2026-05-04)
 
 ### Adicionado

@@ -235,6 +235,10 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v3.1.6 (2026-05-04):** Hotfix HaRP Shared Key.
+    -   Corrige a Shared Key exibida como **"Não disponível"** na seção HaRP (AppAPI) do painel do cliente e no painel admin de credenciais. O `manage.sh` v11.x deixou de gravar a chave no `.credentials`; agora ela é lida diretamente do `docker-compose.yml` (linha `HP_SHARED_KEY=...`) ou via `docker exec <cliente>-harp printenv HP_SHARED_KEY` quando o parser não encontrar.
+    -   Novo método `SSHManager::getHarpSharedKey($clientName)` com dois caminhos de fallback e logging em Module Log (`clientarea_harp_fallback`, `viewCredentials_harp_fallback`).
+
 -   **v3.1.5 (2026-05-04):** Idempotência, ativação automática de Order e botão **Provisionar Agora**.
     -   Novo botão admin **Provisionar Agora** (`provisionNow`) na **Module Commands** do serviço: re-executa `CreateAccount` idempotentemente, ativa o serviço e aceita o Order — útil quando o Order ficou em **Pending** após o cron já ter criado a instância, ou logo após o cliente corrigir o DNS.
     -   `nextcloudsaas_CreateAccount` agora é **idempotente**: se a instância já existe em `/opt/nextcloud-customers/<cliente>/`, o módulo lê as credenciais existentes (`.credentials` / `.env`), atualiza o serviço WHMCS via `UpdateClientProduct`, popula os Custom Fields e retorna `success` em vez de tentar `manage.sh create` novamente.

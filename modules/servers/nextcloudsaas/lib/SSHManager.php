@@ -1089,6 +1089,88 @@ public function testConnection()
     }
 
     /**
+     * Obter a HaRP Shared Key (HP_SHARED_KEY) de uma instância (v3.1.6).
+     *
+     * No manage.sh v11.x, a `HP_SHARED_KEY` não é mais escrita no
+     * ficheiro `.credentials` (ele só lista Nextcloud, Collabora,
+     * MariaDB, Redis, TURN, Signaling e DNS). Por isso o parser do
+     * Helper devolvia string vazia e o painel do cliente exibia
+     * "Não disponível" mesmo com o container `<cliente>-harp` ativo.
+     *
+     * Estratégia em ordem de preferência (parar na primeira que retornar
+     * valor não-vazio):
+     *   1. `grep` em `/opt/nextcloud-customers/<cliente>/docker-compose.yml`
+     *      pela linha `- HP_SHARED_KEY=...` (rapidíssimo, ~10ms).
+     *   2. `docker exec <cliente>-harp printenv HP_SHARED_KEY` (robusto:
+     *      funciona mesmo se o `docker-compose.yml` for editado/regenerado).
+     *
+     * @param string $clientName Nome da instância
+     * @return array {
+     *     success: bool,
+     *     key:     string,    // valor encontrado (ou vazio)
+     *     source:  string,    // 'docker-compose.yml' | 'docker-exec' | ''
+     *     raw:     string,    // saída crua útil para diagnóstico
+     * }
+     */
+    public function getHarpSharedKey($clientName)
+    {
+        $compose = $this->basePath . '/' . $clientName . '/docker-compose.yml';
+
+        // Tentativa 1: docker-compose.yml
+        // Procuramos por uma linha (com prefixo `-` opcional) `HP_SHARED_KEY=...`
+        // e devolvemos somente o valor entre aspas/whitespace.
+        $cmd1 = $this->wrapWithSudo(
+            'grep -E "HP_SHARED_KEY[[:space:]]*=" ' . escapeshellarg($compose) . ' 2>/dev/null | head -n1'
+        );
+        $r1 = $this->executeCommand($cmd1, 10);
+        $line = is_array($r1) && isset($r1['output']) ? trim((string) $r1['output']) : '';
+
+        if ($line !== '') {
+            // Extrair valor depois do primeiro `=`
+            $eqPos = strpos($line, '=');
+            if ($eqPos !== false) {
+                $value = trim(substr($line, $eqPos + 1));
+                // Remover aspas e vírgulas/colchetes residuais (`,`, `]`, `}`)
+                $value = trim($value, "\"' \t\r\n,]\u007d");
+                if ($value !== '') {
+                    return [
+                        'success' => true,
+                        'key'     => $value,
+                        'source'  => 'docker-compose.yml',
+                        'raw'     => $line,
+                    ];
+                }
+            }
+        }
+
+        // Tentativa 2: docker exec
+        $containerName = $clientName . '-harp';
+        $innerCmd = sprintf(
+            'docker exec %s printenv HP_SHARED_KEY 2>/dev/null',
+            escapeshellarg($containerName)
+        );
+        $cmd2 = $this->wrapWithSudo($innerCmd);
+        $r2 = $this->executeCommand($cmd2, 15);
+        $val = is_array($r2) && isset($r2['output']) ? trim((string) $r2['output']) : '';
+
+        if ($val !== '') {
+            return [
+                'success' => true,
+                'key'     => $val,
+                'source'  => 'docker-exec',
+                'raw'     => $val,
+            ];
+        }
+
+        return [
+            'success' => false,
+            'key'     => '',
+            'source'  => '',
+            'raw'     => '',
+        ];
+    }
+
+    /**
      * Verificar se uma instância já existe no servidor (v3.1.5).
      *
      * Considera-se que uma instância existe se:
