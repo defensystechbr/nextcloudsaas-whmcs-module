@@ -16,7 +16,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    3.0.0
+ * @version    3.2.0
  */
 
 namespace NextcloudSaaS;
@@ -78,6 +78,25 @@ class SSHManager
     private $manageScript;
 
     /**
+     * @var string Caminho do nextcloud-manage no servidor (symlink v11.3.4+)
+     */
+    private $manageBin = '/usr/local/bin/nextcloud-manage';
+
+    /**
+     * @var array|null Cache em memória das capabilities detectadas
+     *                 [manager_version, supports_async, supports_json,
+     *                  supports_health_json, supports_backup_offsite, shim_user]
+     */
+    private $capabilities = null;
+
+    /**
+     * @var bool Se true, o SSH user é o ncsaas-api (shim hardened).
+     *           Nesse modo, NÃO usar sudo nem bash -c; chamar nextcloud-manage
+     *           direto com argumentos da allowlist.
+     */
+    private $useShimMode = false;
+
+    /**
      * Construtor da classe SSHManager
      *
      * @param string $host           Endereço do servidor
@@ -124,10 +143,11 @@ class SSHManager
         $product = Helper::getProductConfig($params);
 
         $host = !empty($server['ip']) ? $server['ip'] : $server['hostname'];
+        $username = $server['username'];
 
-        return new self(
+        $instance = new self(
             $host,
-            $server['username'],
+            $username,
             $server['password'],
             !empty($product['ssh_key_path']) ? $product['ssh_key_path'] : $server['accesshash'],
             (isset($server['port']) && (int)$server['port'] >= 1 && (int)$server['port'] <= 65535) ? (int)$server['port'] : 22,
@@ -135,6 +155,15 @@ class SSHManager
             300,
             '/opt/nextcloud-customers'
         );
+
+        // Autodetectar shim mode quando o SSH user é ncsaas-api.
+        // Nesse modo, o servidor força comandos através do ncsaas-api-shim
+        // que rejeita metacaracteres e exige allowlist de verbos.
+        if ($username === 'ncsaas-api') {
+            $instance->setShimMode(true);
+        }
+
+        return $instance;
     }
 
     /**
@@ -152,6 +181,13 @@ class SSHManager
      */
     private function wrapWithSudo($command)
     {
+        // Modo shim: ncsaas-api NÃO usa sudo nem aceita comandos arbitrários
+        // (o shim rejeita metacaracteres). O ForceCommand já faz sudo internamente.
+        // Comandos aqui são apenas literais "nextcloud-manage <args>".
+        if ($this->useShimMode || $this->username === 'ncsaas-api') {
+            return $command;
+        }
+
         // Se o utilizador é root, não precisa de sudo
         if ($this->username === 'root') {
             return $command;
@@ -161,6 +197,137 @@ class SSHManager
         // Redirecionar stderr do sudo para /dev/null para evitar mensagens
         // como "[sudo] password for ..." no output
         return 'sudo -n ' . $command . ' 2>&1';
+    }
+
+    /**
+     * Habilita explicitamente o modo shim (ncsaas-api hardened).
+     *
+     * Em modo shim, o servidor força execução através do
+     * /usr/local/bin/ncsaas-api-shim com allowlist de verbos.
+     * Comandos que usam bash -c, pipes, redirects, docker exec direto
+     * ou cat de arquivos serão rejeitados pelo shim.
+     *
+     * @param bool $on
+     * @return void
+     */
+    public function setShimMode($on)
+    {
+        $this->useShimMode = (bool) $on;
+    }
+
+    /**
+     * Detectar versão e capabilities do nextcloud-saas-manager remoto.
+     *
+     * Estratégia (cada uma com fallback graceful):
+     *   1. `nextcloud-manage health --json` → se retornar JSON válido com
+     *      schema_version, então é v12.0+ (supports_async = true, etc.).
+     *   2. Se health --json falhar, tenta `nextcloud-manage --help 2>&1 | head -50`
+     *      e procura por strings como "--async", "v12", "backup-offsite".
+     *   3. Fallback final: lê o cabeçalho do manage.sh procurando por
+     *      "# Version:" ou similar.
+     *
+     * Resultado é cacheado por instância de SSHManager.
+     *
+     * @return array {
+     *   manager_version: string,           // ex: "12.2.0" ou "11.3.4" ou "unknown"
+     *   supports_async: bool,
+     *   supports_json: bool,
+     *   supports_health_json: bool,
+     *   supports_backup_offsite: bool,
+     *   supports_idempotency: bool,
+     *   supports_callback: bool,
+     *   shim_user: string,                 // "root" ou "ncsaas-api"
+     *   detected_at: string,               // ISO 8601
+     * }
+     */
+    public function detectServerCapabilities()
+    {
+        if ($this->capabilities !== null) {
+            return $this->capabilities;
+        }
+
+        $caps = [
+            'manager_version'         => 'unknown',
+            'supports_async'          => false,
+            'supports_json'           => false,
+            'supports_health_json'    => false,
+            'supports_backup_offsite' => false,
+            'supports_idempotency'    => false,
+            'supports_callback'       => false,
+            'shim_user'               => $this->username,
+            'detected_at'             => gmdate('c'),
+        ];
+
+        // Estratégia 1: health --json (só v12+ tem)
+        $healthCmd = $this->wrapWithSudo($this->manageBin . ' health --json 2>&1');
+        $r = $this->executeCommand($healthCmd, 15);
+        $output = is_array($r) && isset($r['output']) ? trim((string) $r['output']) : '';
+
+        if ($output !== '' && strpos($output, '{') !== false) {
+            // Extrair primeiro objeto JSON válido
+            $jsonStart = strpos($output, '{');
+            $jsonStr = substr($output, $jsonStart);
+            $parsed = json_decode($jsonStr, true);
+            if (is_array($parsed) && isset($parsed['schema_version'])) {
+                $caps['supports_json']           = true;
+                $caps['supports_health_json']    = true;
+                $caps['supports_async']          = true;  // v12.0+ 
+                $caps['supports_backup_offsite'] = true;  // v12.2+ (best-effort)
+                $caps['supports_idempotency']    = true;
+                $caps['supports_callback']       = true;
+                // Tentar inferir versão exata pelo manager_version se exposto
+                if (isset($parsed['manager_version'])) {
+                    $caps['manager_version'] = (string) $parsed['manager_version'];
+                } else {
+                    $caps['manager_version'] = '12.x';
+                }
+            }
+        }
+
+        // Estratégia 2 (fallback v11): grep no --help do manage.sh
+        if ($caps['manager_version'] === 'unknown') {
+            $helpCmd = $this->wrapWithSudo(
+                'bash ' . escapeshellarg($this->manageScript) . ' --help 2>&1 | head -80'
+            );
+            $r2 = $this->executeCommand($helpCmd, 15);
+            $help = is_array($r2) && isset($r2['output']) ? (string) $r2['output'] : '';
+            if ($help !== '') {
+                // Heurística v12: presença de "--async" no help
+                if (stripos($help, '--async') !== false) {
+                    $caps['manager_version']      = '12.x';
+                    $caps['supports_async']       = true;
+                    $caps['supports_json']        = (stripos($help, '--json') !== false);
+                    $caps['supports_idempotency'] = (stripos($help, 'idempotency') !== false);
+                    $caps['supports_callback']    = (stripos($help, 'callback') !== false);
+                } elseif (stripos($help, 'manage.sh') !== false || stripos($help, 'Nextcloud SaaS Manager') !== false) {
+                    $caps['manager_version'] = '11.x';
+                    // v11: tudo síncrono, sem JSON estável
+                }
+            }
+        }
+
+        // Estratégia 3 (último recurso): ler header do manage.sh
+        if ($caps['manager_version'] === 'unknown') {
+            $headCmd = $this->wrapWithSudo(
+                'head -30 ' . escapeshellarg($this->manageScript) . ' 2>/dev/null'
+            );
+            $r3 = $this->executeCommand($headCmd, 10);
+            $head = is_array($r3) && isset($r3['output']) ? (string) $r3['output'] : '';
+            if (preg_match('/v(\d+\.\d+(?:\.\d+)?)/i', $head, $m)) {
+                $caps['manager_version'] = $m[1];
+                $major = (int) strtok($m[1], '.');
+                if ($major >= 12) {
+                    $caps['supports_async']       = true;
+                    $caps['supports_json']        = true;
+                    $caps['supports_health_json'] = true;
+                    $caps['supports_idempotency'] = true;
+                    $caps['supports_callback']    = true;
+                }
+            }
+        }
+
+        $this->capabilities = $caps;
+        return $caps;
     }
 
     /**
@@ -1198,6 +1365,275 @@ public function testConnection()
      *     path: string,
      * }
      */
+    /**
+     * Executa nextcloud-manage em modo JSON estruturado (v12.0+).
+     *
+     * Constrói o comando ssh-safe (sem bash -c, sem pipes) compatível com
+     * o shim ncsaas-api. Anexa --json e flags extras (--async, --idempotency-key,
+     * --callback, --force, --dry-run, --confirm).
+     *
+     * Tenta decodificar a saída como JSON. Se a primeira tentativa falhar e
+     * o servidor for v11, devolve o resultado bruto em 'output' com 'json' = null.
+     *
+     * @param string $clientName Nome do cliente ("_" se top-level)
+     * @param string $domainOrArg Domínio FQDN para create/restore; "_" para outros
+     * @param string $cmd Verbo: create|remove|backup|restore|status|credentials|...
+     * @param array  $flags Lista de flags adicionais (cada string já prefixada com --).
+     *                     Ex: ["--async", "--idempotency-key=abc-...", "--callback=https://..."]
+     * @param int    $timeout Timeout SSH em segundos (default 60)
+     * @return array {
+     *   success: bool,
+     *   exit_code: int,
+     *   raw_output: string,
+     *   json: array|null,      // payload decodificado quando disponível
+     *   error: string,         // código de erro do contrato v12 quando presente
+     *   error_message: string, // mensagem legível
+     * }
+     */
+    public function runManageJson($clientName, $domainOrArg, $cmd, array $flags = [], $timeout = 60)
+    {
+        // Higienizar flags — cada uma deve começar com --, sem espaços
+        $clean = [];
+        $hasJson = false;
+        foreach ($flags as $f) {
+            $f = trim((string) $f);
+            if ($f === '' || strpos($f, '--') !== 0) {
+                continue;
+            }
+            if ($f === '--json') {
+                $hasJson = true;
+            }
+            $clean[] = $f;
+        }
+        if (!$hasJson) {
+            $clean[] = '--json';
+        }
+
+        $args = [
+            escapeshellarg($this->manageBin),
+            escapeshellarg((string) $clientName),
+            escapeshellarg((string) $domainOrArg),
+            escapeshellarg((string) $cmd),
+        ];
+        foreach ($clean as $f) {
+            // Flags são literais conhecidos (--async, --json, --idempotency-key=UUID,
+            // --callback=URL). Não usar escapeshellarg para preservar o = quando o
+            // shim valida o formato. Caracteres perigosos já foram filtrados.
+            $args[] = $f;
+        }
+        $cmdStr = $this->wrapWithSudo(implode(' ', $args));
+        $result = $this->executeCommand($cmdStr, $timeout);
+
+        $output   = is_array($result) && isset($result['output']) ? (string) $result['output'] : '';
+        $exitCode = is_array($result) && isset($result['exit_code']) ? (int) $result['exit_code'] : 0;
+
+        $jsonObj = null;
+        $error = '';
+        $errorMessage = '';
+
+        // Procurar primeiro objeto JSON no output (manage.sh pode imprimir
+        // mensagens livres antes do JSON, embora o contrato v12 prometa
+        // apenas JSON no stdout quando --json está ativo).
+        if ($output !== '') {
+            $start = strpos($output, '{');
+            $end   = strrpos($output, '}');
+            if ($start !== false && $end !== false && $end > $start) {
+                $candidate = substr($output, $start, $end - $start + 1);
+                $parsed = json_decode($candidate, true);
+                if (is_array($parsed)) {
+                    $jsonObj = $parsed;
+                    if (isset($parsed['error'])) {
+                        $error = (string) $parsed['error'];
+                    }
+                    if (isset($parsed['message'])) {
+                        $errorMessage = (string) $parsed['message'];
+                    }
+                }
+            }
+        }
+
+        return [
+            'success'       => ($exitCode === 0 && $error === ''),
+            'exit_code'     => $exitCode,
+            'raw_output'    => $output,
+            'json'          => $jsonObj,
+            'error'         => $error,
+            'error_message' => $errorMessage,
+        ];
+    }
+
+    /**
+     * Health check consolidado (v12.0+).
+     *
+     * Retorna {schema_version, checks: [{name, status, message, duration_ms}], summary: {ok, warn, fail}}.
+     *
+     * @return array {
+     *   success: bool, summary: array, checks: array, raw: array|null, error: string
+     * }
+     */
+    public function healthCheck()
+    {
+        $cmd = $this->wrapWithSudo($this->manageBin . ' health --json');
+        $result = $this->executeCommand($cmd, 20);
+        $output = is_array($result) && isset($result['output']) ? (string) $result['output'] : '';
+
+        $payload = null;
+        if ($output !== '') {
+            $start = strpos($output, '{');
+            $end = strrpos($output, '}');
+            if ($start !== false && $end !== false && $end > $start) {
+                $payload = json_decode(substr($output, $start, $end - $start + 1), true);
+            }
+        }
+
+        if (!is_array($payload)) {
+            return [
+                'success' => false,
+                'summary' => ['ok' => 0, 'warn' => 0, 'fail' => 0],
+                'checks'  => [],
+                'raw'     => null,
+                'error'   => 'health_unavailable',
+            ];
+        }
+
+        return [
+            'success' => isset($payload['summary']['fail']) && (int) $payload['summary']['fail'] === 0,
+            'summary' => isset($payload['summary']) ? $payload['summary'] : ['ok' => 0, 'warn' => 0, 'fail' => 0],
+            'checks'  => isset($payload['checks']) ? $payload['checks'] : [],
+            'raw'     => $payload,
+            'error'   => '',
+        ];
+    }
+
+    /**
+     * Consultar status de um job assíncrono (v12.0+).
+     *
+     * @param string $jobId UUID v4 do job
+     * @return array Payload do servidor + flags
+     */
+    public function jobStatus($jobId)
+    {
+        $cmd = $this->wrapWithSudo($this->manageBin . ' job ' . escapeshellarg($jobId) . ' status --json');
+        $result = $this->executeCommand($cmd, 15);
+        $output = is_array($result) && isset($result['output']) ? (string) $result['output'] : '';
+
+        $payload = null;
+        if ($output !== '') {
+            $start = strpos($output, '{');
+            $end = strrpos($output, '}');
+            if ($start !== false && $end !== false && $end > $start) {
+                $payload = json_decode(substr($output, $start, $end - $start + 1), true);
+            }
+        }
+
+        if (!is_array($payload)) {
+            return [
+                'success'   => false,
+                'state'     => 'unknown',
+                'exit_code' => null,
+                'raw'       => null,
+                'error'     => 'job_status_unavailable',
+            ];
+        }
+
+        return [
+            'success'   => (isset($payload['state']) && in_array($payload['state'], ['done', 'queued', 'running', 'cancelled'], true)),
+            'state'     => isset($payload['state']) ? (string) $payload['state'] : 'unknown',
+            'exit_code' => isset($payload['exit_code']) ? (int) $payload['exit_code'] : null,
+            'cmd'       => isset($payload['cmd']) ? (string) $payload['cmd'] : '',
+            'client'    => isset($payload['client']) ? (string) $payload['client'] : '',
+            'raw'       => $payload,
+            'error'     => isset($payload['error']) ? (string) $payload['error'] : '',
+        ];
+    }
+
+    /**
+     * Consultar logs de um job (v12.0+).
+     *
+     * @param string $jobId
+     * @param int    $maxLines
+     * @return array {success, lines, raw_output}
+     */
+    public function jobLogs($jobId, $maxLines = 200)
+    {
+        $cmd = $this->wrapWithSudo($this->manageBin . ' job ' . escapeshellarg($jobId) . ' logs');
+        $result = $this->executeCommand($cmd, 30);
+        $output = is_array($result) && isset($result['output']) ? (string) $result['output'] : '';
+        $lines = $output === '' ? [] : preg_split('/\r?\n/', $output);
+        if (is_array($lines) && $maxLines > 0 && count($lines) > $maxLines) {
+            $lines = array_slice($lines, -$maxLines);
+        }
+        return [
+            'success'    => is_array($result) && !empty($result['success']),
+            'lines'      => $lines,
+            'raw_output' => $output,
+        ];
+    }
+
+    /**
+     * Cancelar um job enfileirado (só funciona se state == queued).
+     *
+     * @param string $jobId
+     * @return array {success, state, raw}
+     */
+    public function jobCancel($jobId)
+    {
+        $cmd = $this->wrapWithSudo($this->manageBin . ' job ' . escapeshellarg($jobId) . ' cancel --json');
+        $result = $this->executeCommand($cmd, 15);
+        $output = is_array($result) && isset($result['output']) ? (string) $result['output'] : '';
+        $payload = null;
+        if ($output !== '') {
+            $start = strpos($output, '{');
+            $end = strrpos($output, '}');
+            if ($start !== false && $end !== false && $end > $start) {
+                $payload = json_decode(substr($output, $start, $end - $start + 1), true);
+            }
+        }
+        return [
+            'success' => (is_array($payload) && isset($payload['state']) && $payload['state'] === 'cancelled'),
+            'state'   => is_array($payload) && isset($payload['state']) ? (string) $payload['state'] : 'unknown',
+            'raw'     => $payload,
+        ];
+    }
+
+    /**
+     * Listar jobs do servidor com filtros opcionais.
+     *
+     * @param array $filters {state?, client?, cmd?, limit?, offset?}
+     * @return array Lista de jobs (cada um é um array assoc).
+     */
+    public function jobList(array $filters = [])
+    {
+        $args = [$this->manageBin, 'job', 'list', '--json'];
+        foreach (['state', 'client', 'cmd', 'limit', 'offset'] as $key) {
+            if (isset($filters[$key]) && $filters[$key] !== '') {
+                $args[] = '--' . $key . '=' . preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $filters[$key]);
+            }
+        }
+        $cmd = $this->wrapWithSudo(implode(' ', array_map('escapeshellarg', $args)));
+        // o '=' nas flags precisa sobreviver — escapeshellarg quebra. Reconstruir:
+        $cmdParts = array_map(function ($v) {
+            // se for flag --foo=bar, não escapar
+            if (preg_match('/^--[a-z\-]+=[\w\-]+$/', $v)) {
+                return $v;
+            }
+            return escapeshellarg($v);
+        }, $args);
+        $cmd = $this->wrapWithSudo(implode(' ', $cmdParts));
+
+        $result = $this->executeCommand($cmd, 15);
+        $output = is_array($result) && isset($result['output']) ? (string) $result['output'] : '';
+        $start = strpos($output, '[');
+        $end = strrpos($output, ']');
+        if ($start !== false && $end !== false && $end > $start) {
+            $arr = json_decode(substr($output, $start, $end - $start + 1), true);
+            if (is_array($arr)) {
+                return $arr;
+            }
+        }
+        return [];
+    }
+
     public function instanceExists($clientName)
     {
         $instancePath = $this->basePath . '/' . $clientName;

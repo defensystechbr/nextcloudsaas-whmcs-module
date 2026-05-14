@@ -119,6 +119,15 @@ function nextcloudsaas_ConfigOptions()
             'Default'     => '',
             'Description' => 'Prefixo opcional para o nome do cliente no manage.sh (ex: "nc-")',
         ],
+        // configoption7
+        'URL Pública do WHMCS (Webhook)' => [
+            'Type'        => 'text',
+            'Size'        => '60',
+            'Default'     => '',
+            'Description' => 'Override opcional da URL pública HTTPS do WHMCS para receber callbacks do manager v12+. '
+                . 'Deixe vazio para autodetectar a partir das Settings do WHMCS. '
+                . 'Manager rejeita IPs RFC 1918 (10.x/172.16-31.x/192.168.x).',
+        ],
     ];
 }
 
