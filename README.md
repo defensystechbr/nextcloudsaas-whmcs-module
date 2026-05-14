@@ -235,6 +235,11 @@ O cliente tem acesso a um painel de controlo completo e moderno, que inclui:
 
 ## 4. Changelog
 
+-   **v3.1.7 (2026-05-04):** UX + robustez de provisionamento.
+    -   **Removida** a seção **HaRP (AppAPI) > Shared Key** do painel do cliente (é credencial interna do AppAPI; não pertence ao assinante). O painel admin **Ver Credenciais** continua exibindo a chave (com o fallback da v3.1.6).
+    -   Lookup do Custom Field **Domínio da Instância** ficou tolerante a acentos/case/encoding por meio do helper `nextcloudsaas_findDomainCustomField()` (3 estratégias em cascata, incluindo `LOWER(fieldname) LIKE`).
+    -   `SSHManager::instanceExists()` endurecido: agora exige `.credentials` **e** container `<cliente>-app` existente; retorna também a flag `partial` para diagnóstico de provisionamentos parciais.
+
 -   **v3.1.6 (2026-05-04):** Hotfix HaRP Shared Key.
     -   Corrige a Shared Key exibida como **"Não disponível"** na seção HaRP (AppAPI) do painel do cliente e no painel admin de credenciais. O `manage.sh` v11.x deixou de gravar a chave no `.credentials`; agora ela é lida diretamente do `docker-compose.yml` (linha `HP_SHARED_KEY=...`) ou via `docker exec <cliente>-harp printenv HP_SHARED_KEY` quando o parser não encontrar.
     -   Novo método `SSHManager::getHarpSharedKey($clientName)` com dois caminhos de fallback e logging em Module Log (`clientarea_harp_fallback`, `viewCredentials_harp_fallback`).

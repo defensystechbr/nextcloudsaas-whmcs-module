@@ -2,6 +2,17 @@
 
 Todas as mudanças notáveis deste módulo seguem [Keep a Changelog](https://keepachangelog.com/pt-BR/) e [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## v3.1.7 (2026-05-04)
+
+### Removido
+- **Seção HaRP (AppAPI) no painel do cliente (`clientarea.tpl`).** A linha *"Shared Key: ..."* foi removida do painel do assinante — é credencial interna do AppAPI/HaRP daemon (não pertence ao usuário final), seguindo o mesmo critério aplicado a Collabora/MariaDB/TURN/Signaling em v3.1.3. O container dedicado `<cliente>-harp` continua operacional. **O painel admin** (botão **Ver Credenciais**) **continua exibindo** a Shared Key normalmente, com o fallback robusto introduzido em v3.1.6.
+- `harpSharedKey` removido do array de `templateVars` em `nextcloudsaas_ClientArea()` e o fallback `getHarpSharedKey()` deixou de ser invocado a partir do painel cliente (continua acessível ao admin via `viewCredentials`).
+
+### Corrigido
+- **Robustez do lookup do Custom Field "Domínio da Instância".** As três queries `LIKE '%Domínio%Instância%'` espalhadas em `nextcloudsaas_hooks.php` (validador de checkout, `AfterShoppingCartCheckout` e `AcceptOrder`) foram refatoradas para usar uma nova função helper `nextcloudsaas_findDomainCustomField($productId)` com cascata de três tentativas: (1) acentos UTF-8, (2) sem acentos, (3) `whereRaw("LOWER(fieldname) LIKE '%dom%' AND LOWER(fieldname) LIKE '%inst%'")` — case-insensitive e independente de encoding. Resolve o caso em que o admin nomeia o Custom Field sem acentos, com letras maiúsculas, ou em que o arquivo PHP eventualmente foi salvo em CP1252/Latin-1 por algum editor.
+- **`SSHManager::instanceExists()` endurecido.** O critério de "instância existente" passou de `dir AND (.credentials OR .env)` para `dir AND .credentials AND container <cliente>-app existente`. Antes, uma tentativa parcial de provisionamento que deixasse apenas o `.env` no diretório fazia o `CreateAccount` entrar em fast-path e ler credenciais inexistentes. Também é retornado o flag `partial` para sinalizar diretório sem `.credentials` (útil em diagnóstico).
+- Mensagem do logActivity (`AfterShoppingCartCheckout`) ficou mais descritiva, sugerindo padronizar o nome do Custom Field em **Setup > Products/Services > Custom Fields**.
+
 ## v3.1.6 (2026-05-04)
 
 ### Corrigido

@@ -363,24 +363,11 @@
             </table>
         </div>
 
-        {* ================================================================ *}
-        {* CREDENCIAIS - HaRP (AppAPI)                                      *}
-        {* ================================================================ *}
-        <div class="nc-section">
-            <h3>&#128268; HaRP (AppAPI)</h3>
-            <table>
-                <tr>
-                    <td>Shared Key:</td>
-                    <td>
-                        {if $harpSharedKey}
-                            <span class="nc-secret">{$harpSharedKey}</span>
-                        {else}
-                            <em>Nao disponivel.</em>
-                        {/if}
-                    </td>
-                </tr>
-            </table>
-        </div>
+        {* HaRP (AppAPI) Shared Key removida do painel do cliente em v3.1.7
+           — é credencial interna do AppAPI/HaRP daemon e não pertence ao
+           assinante (mesmo critério aplicado a Collabora/MariaDB/TURN/
+           Signaling em v3.1.3). O container `<cliente>-harp` continua
+           dedicado e o serviço permanece operacional. *}
 
         {* ================================================================ *}
         {* ARMAZENAMENTO                                                    *}
