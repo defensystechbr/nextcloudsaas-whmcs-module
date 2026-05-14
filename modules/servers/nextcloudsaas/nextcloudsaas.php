@@ -21,7 +21,7 @@
  * @package    NextcloudSaaS
  * @author     Manus AI / Defensys
  * @copyright  2026
- * @version    3.1.6
+ * @version    3.1.7
  * @license    Proprietary
  *
  * @see https://developers.whmcs.com/provisioning-modules/
@@ -2167,7 +2167,6 @@ function nextcloudsaas_ClientArea(array $params)
         'turnPort'              => '',
         'turnAddress'           => '',
         'signalingSecret'       => '',
-        'harpSharedKey'         => '',
     ];
 
     // Tentar obter credenciais completas do .credentials via SSH
@@ -2191,21 +2190,9 @@ function nextcloudsaas_ClientArea(array $params)
                 $templateVars['turnPort']         = !empty($creds['turn_port']) ? $creds['turn_port'] : '';
                 $templateVars['turnAddress']      = !empty($creds['turn_address']) ? $creds['turn_address'] : (!empty($creds['turn_port']) ? 'turn:' . $serverIp . ':' . $creds['turn_port'] : '');
                 $templateVars['signalingSecret']  = !empty($creds['signaling_secret']) ? $creds['signaling_secret'] : '';
-                $templateVars['harpSharedKey']    = !empty($creds['harp_shared_key']) ? $creds['harp_shared_key'] : '';
-
-                // v3.1.6: o manage.sh v11.x não escreve mais a HP_SHARED_KEY
-                // no ficheiro .credentials. Quando o parser não achou, vamos
-                // buscar diretamente no docker-compose.yml ou no container.
-                if (empty($templateVars['harpSharedKey']) && method_exists($ssh, 'getHarpSharedKey')) {
-                    $harp = $ssh->getHarpSharedKey($clientName);
-                    if (!empty($harp['key'])) {
-                        $templateVars['harpSharedKey'] = $harp['key'];
-                        Helper::log('clientarea_harp_fallback', [
-                            'clientName' => $clientName,
-                            'source'     => $harp['source'],
-                        ]);
-                    }
-                }
+                // v3.1.7: HaRP Shared Key removida do painel do cliente
+                // (credencial interna do AppAPI; o container dedicado
+                // <cliente>-harp continua existindo e operacional).
 
                 // Extrair data de criação do raw (usar strpos para evitar problemas UTF-8)
                 $striposFunc = function_exists('mb_stripos') ? 'mb_stripos' : 'stripos';

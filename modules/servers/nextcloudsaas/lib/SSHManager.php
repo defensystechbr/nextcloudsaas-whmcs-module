@@ -1171,22 +1171,31 @@ public function testConnection()
     }
 
     /**
-     * Verificar se uma instância já existe no servidor (v3.1.5).
+     * Verificar se uma instância já existe no servidor (v3.1.5+).
      *
-     * Considera-se que uma instância existe se:
+     * Critério v3.1.7 (endurecido): consideramos uma instância
+     * **realmente provisionada** apenas quando:
      *   - O diretório /opt/nextcloud-customers/<cliente>/ existe, E
-     *   - O ficheiro .credentials OU .env estão presentes.
+     *   - O ficheiro `.credentials` está presente (única fonte de
+     *     verdade que contém URL/usuário/senha utilizáveis), E
+     *   - O container Docker `<cliente>-app` existe (criado/parado/rodando).
      *
-     * Usado para tornar `CreateAccount` idempotente: quando o cron já
-     * provisionou a instância anteriormente, o módulo reutiliza as
-     * credenciais existentes em vez de tentar criar de novo (e falhar).
+     * Antes (v3.1.5/v3.1.6) era considerado existente quando havia
+     * `.credentials` *OU* `.env`. Isso gerava falso positivo em casos
+     * de tentativa parcial anterior (diretório com apenas `.env` mas
+     * sem `.credentials`), levando o `CreateAccount` ao fast-path e
+     * tentando ler credenciais inexistentes.
+     *
+     * O retorno traz também as flags individuais para diagnóstico.
      *
      * @param string $clientName Nome da instância
      * @return array {
-     *     exists: bool,
-     *     has_credentials: bool,
-     *     has_env: bool,
-     *     path: string
+     *     exists: bool,            // true SOMENTE se totalmente provisionada
+     *     has_credentials: bool,   // .credentials presente
+     *     has_env: bool,           // .env presente
+     *     has_container: bool,     // container <cliente>-app existe (qualquer estado)
+     *     partial: bool,           // diretório existe mas sem .credentials => provisionamento incompleto
+     *     path: string,
      * }
      */
     public function instanceExists($clientName)
@@ -1194,30 +1203,44 @@ public function testConnection()
         $instancePath = $this->basePath . '/' . $clientName;
         $credFile     = $instancePath . '/.credentials';
         $envFile      = $instancePath . '/.env';
+        $containerNm  = $clientName . '-app';
 
-        // Em uma única chamada SSH testamos os três paths e devolvemos
-        // marcadores no stdout. Isto reduz latência (1 chamada vs 3).
+        // Em uma única chamada SSH testamos os quatro sinais e devolvemos
+        // marcadores no stdout. Isto reduz latência (1 chamada vs 4).
         $innerCmd = sprintf(
             '( [ -d %s ] && echo DIR_OK || echo DIR_MISS ) ; '
             . '( [ -f %s ] && echo CRED_OK || echo CRED_MISS ) ; '
-            . '( [ -f %s ] && echo ENV_OK || echo ENV_MISS )',
+            . '( [ -f %s ] && echo ENV_OK || echo ENV_MISS ) ; '
+            . '( docker inspect %s >/dev/null 2>&1 && echo CTR_OK || echo CTR_MISS )',
             escapeshellarg($instancePath),
             escapeshellarg($credFile),
-            escapeshellarg($envFile)
+            escapeshellarg($envFile),
+            escapeshellarg($containerNm)
         );
         $cmd = $this->wrapWithSudo($innerCmd);
-        $result = $this->executeCommand($cmd, 10);
+        $result = $this->executeCommand($cmd, 15);
 
         $output = is_array($result) && isset($result['output']) ? (string) $result['output'] : '';
 
         $dirOk  = (strpos($output, 'DIR_OK')  !== false);
         $credOk = (strpos($output, 'CRED_OK') !== false);
         $envOk  = (strpos($output, 'ENV_OK')  !== false);
+        $ctrOk  = (strpos($output, 'CTR_OK')  !== false);
+
+        // Instância totalmente provisionada: dir + .credentials + container
+        // (.env por si só NÃO conta mais; era a fonte de falso positivo).
+        $exists  = ($dirOk && $credOk && $ctrOk);
+        // Sinaliza um estado de provisionamento incompleto onde o
+        // diretório existe mas sem .credentials — chamador pode decidir
+        // se limpa e refaz, ou se segue tentando o `manage.sh create`.
+        $partial = ($dirOk && !$credOk);
 
         return [
-            'exists'          => ($dirOk && ($credOk || $envOk)),
+            'exists'          => $exists,
             'has_credentials' => $credOk,
             'has_env'         => $envOk,
+            'has_container'   => $ctrOk,
+            'partial'         => $partial,
             'path'            => $instancePath,
         ];
     }

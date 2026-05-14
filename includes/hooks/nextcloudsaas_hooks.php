@@ -47,6 +47,62 @@ if (file_exists($moduleLibPath . 'Helper.php')) {
     require_once $moduleLibPath . 'Helper.php';
 }
 
+/**
+ * Localizar o Custom Field "Domínio da Instância" de um produto
+ * de forma resistente a problemas de encoding/capitalização (v3.1.7).
+ *
+ * Estratégia em cascata (a primeira que retornar registro vence):
+ *   1. LIKE com acentos UTF-8 corretos: `%Domínio%Instância%`
+ *      (caso padrão quando o admin digitou o nome com acentos).
+ *   2. LIKE sem acentos: `%Dominio%Instancia%`
+ *      (caso o admin tenha digitado sem acento por preguiça/teclado).
+ *   3. `whereRaw("LOWER(fieldname) LIKE '%dom%inst%'")` (último recurso)
+ *      — case-insensitive e independente de encoding/acento; cobre
+ *      variações como "Dominio Instancia", "DOMÍNIO DA INSTÂNCIA",
+ *      "Domain of Instance" (no caso da i18n EN futura), bem como
+ *      qualquer corrupção de bytes vindos de editores Windows que
+*       eventualmente regravam o arquivo em CP1252/Latin-1.
+ *
+ * @param  int $productId  ID do produto (tblproducts.id) para filtrar
+ *                         o `relid` em `tblcustomfields`.
+ * @return object|null     Registro do Custom Field ou null se não encontrado.
+ */
+if (!function_exists('nextcloudsaas_findDomainCustomField')) {
+    function nextcloudsaas_findDomainCustomField($productId)
+    {
+        if (!class_exists('\\WHMCS\\Database\\Capsule')) {
+            return null;
+        }
+
+        // Tentativa 1: com acentos UTF-8 corretos
+        $cf = \WHMCS\Database\Capsule::table('tblcustomfields')
+            ->where('relid', $productId)
+            ->where('type', 'product')
+            ->where('fieldname', 'LIKE', '%Domínio%Instância%')
+            ->first();
+        if ($cf) { return $cf; }
+
+        // Tentativa 2: sem acentos
+        $cf = \WHMCS\Database\Capsule::table('tblcustomfields')
+            ->where('relid', $productId)
+            ->where('type', 'product')
+            ->where('fieldname', 'LIKE', '%Dominio%Instancia%')
+            ->first();
+        if ($cf) { return $cf; }
+
+        // Tentativa 3: case-insensitive + acento-insensitive via whereRaw.
+        // Padrão deliberadamente curto ("dom" + "inst") para tolerar
+        // qualquer combinação encoding/case/idioma sem dar match em
+        // outros campos comuns de produto.
+        $cf = \WHMCS\Database\Capsule::table('tblcustomfields')
+            ->where('relid', $productId)
+            ->where('type', 'product')
+            ->whereRaw("LOWER(fieldname) LIKE '%dom%' AND LOWER(fieldname) LIKE '%inst%'")
+            ->first();
+        return $cf ?: null;
+    }
+}
+
 // =============================================================================
 // HOOKS DE CICLO DE VIDA DO MÓDULO
 // =============================================================================
@@ -451,9 +507,14 @@ add_hook('ShoppingCartValidateCheckout', 1, function ($vars) {
             // Verificar se este campo é o "Domínio da Instância" de um produto nextcloudsaas
             try {
                 if (class_exists('\\WHMCS\\Database\\Capsule')) {
+                    // v3.1.7: busca robusta a acento/case/encoding.
                     $field = \WHMCS\Database\Capsule::table('tblcustomfields')
                         ->where('id', $fieldId)
-                        ->where('fieldname', 'LIKE', '%Domínio%Instância%')
+                        ->where(function ($q) {
+                            $q->where('fieldname', 'LIKE', '%Domínio%Instância%')
+                              ->orWhere('fieldname', 'LIKE', '%Dominio%Instancia%')
+                              ->orWhereRaw("LOWER(fieldname) LIKE '%dom%' AND LOWER(fieldname) LIKE '%inst%'");
+                        })
                         ->first();
 
                     if ($field) {
@@ -528,24 +589,10 @@ add_hook('AfterShoppingCartCheckout', 1, function ($vars) {
                 continue;
             }
 
-            // Procurar o Custom Field "Domínio da Instância"
-            $customField = \WHMCS\Database\Capsule::table('tblcustomfields')
-                ->where('relid', $product->id)
-                ->where('type', 'product')
-                ->where('fieldname', 'LIKE', '%Domínio%Instância%')
-                ->first();
-
+            // Procurar o Custom Field "Domínio da Instância" (v3.1.7: helper robusto)
+            $customField = nextcloudsaas_findDomainCustomField($product->id);
             if (!$customField) {
-                // Tentar sem acentos
-                $customField = \WHMCS\Database\Capsule::table('tblcustomfields')
-                    ->where('relid', $product->id)
-                    ->where('type', 'product')
-                    ->where('fieldname', 'LIKE', '%Dominio%Instancia%')
-                    ->first();
-            }
-
-            if (!$customField) {
-                logActivity("Nextcloud SaaS Hook: Custom Field 'Domínio da Instância' não encontrado para produto #{$product->id}");
+                logActivity("Nextcloud SaaS Hook: Custom Field 'Domínio da Instância' não encontrado para produto #{$product->id} (tente padronizar o nome do Custom Field como 'Domínio da Instância' em Setup > Products/Services > Custom Fields).");
                 continue;
             }
 
@@ -639,19 +686,8 @@ add_hook('AcceptOrder', 1, function ($vars) {
                 continue;
             }
 
-            // Localizar Custom Field "Domínio da Instância" do produto
-            $customField = \WHMCS\Database\Capsule::table('tblcustomfields')
-                ->where('relid', $product->id)
-                ->where('type', 'product')
-                ->where('fieldname', 'LIKE', '%Domínio%Instância%')
-                ->first();
-            if (!$customField) {
-                $customField = \WHMCS\Database\Capsule::table('tblcustomfields')
-                    ->where('relid', $product->id)
-                    ->where('type', 'product')
-                    ->where('fieldname', 'LIKE', '%Dominio%Instancia%')
-                    ->first();
-            }
+            // Localizar Custom Field "Domínio da Instância" (v3.1.7: helper robusto)
+            $customField = nextcloudsaas_findDomainCustomField($product->id);
             if (!$customField) {
                 logActivity("Nextcloud SaaS Hook (AcceptOrder): Custom Field 'Domínio da Instância' não encontrado para produto #{$product->id}");
                 continue;
