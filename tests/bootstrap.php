@@ -36,3 +36,7 @@ if (file_exists($autoload)) {
 
 // 4. Carregar o Helper do módulo a testar.
 require_once __DIR__ . '/../modules/servers/nextcloudsaas/lib/Helper.php';
+
+// 5. JobTracker (v3.2.0+) — secret determinístico para testes.
+putenv('NEXTCLOUDSAAS_TEST_SECRET=test-fixed-secret-do-not-use-in-prod-' . str_repeat('A', 32));
+require_once __DIR__ . '/../modules/servers/nextcloudsaas/lib/JobTracker.php';
