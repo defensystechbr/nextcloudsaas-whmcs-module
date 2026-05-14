@@ -102,6 +102,8 @@ O Traefik continua a detetar automaticamente o domínio do cliente e a provision
 7.  **Importante:** Marque a opção **Override with Custom Port** e defina a porta como **22**.
 8.  Clique em **Test Connection**. Deverá ver uma mensagem de sucesso.
 
+> **A partir do `nextcloud-saas-manager` v12.0 e do módulo v3.2.0** é recomendado migrar do `root` para o usuário dedicado `ncsaas-api`, que executa via shim hardened com allowlist de verbos. Consulte [`docs/SSH-NCSAAS-API.md`](docs/SSH-NCSAAS-API.md) para o procedimento completo (geração de chave Ed25519, instalação e rotação). O módulo detecta o modo automaticamente quando o `Username` do Server Profile é `ncsaas-api`.
+
 ### 2.4. Configuração do Produto no WHMCS
 
 1.  Vá para **Setup > Products/Services > Products/Services**.
